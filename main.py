@@ -1,16 +1,33 @@
-# This is a sample Python script.
+"""
+- python -m graph.visualize
+- python -m main
 
-# Press ⌃R to execute it or replace it with your code.
-# Press Double ⇧ to search everywhere for classes, files, tool windows, actions, and settings.
+example_prompt: screw 24mm long with circular top and threads
+"""
 
+from dotenv import load_dotenv
+from langchain_core.messages import HumanMessage
 
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press ⌘F8 to toggle the breakpoint.
+from graph.graph import build_graph
 
+load_dotenv(".env")
 
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
-    print_hi('PyCharm')
+graph = build_graph()
+state = {"messages": []}
 
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+while True:
+    user = input("User: ")
+
+    if user == "exit":
+        break
+
+    state["messages"] += [HumanMessage(content=user)]
+    result = graph.invoke(state)
+
+    # print(result.keys())
+    print("▶︎ Design dimensions: ", result.get("dimension_json"))
+    print("▶︎ Design instructions: ", result.get("design_instructions"))
+    print("\n")
+
+    # state updates propagate automatically
+    state = result
