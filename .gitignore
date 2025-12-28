@@ -1,0 +1,7 @@
+# dirs
+.DS_Store
+.idea
+.venv
+
+# files
+.env
