@@ -1,8 +1,7 @@
 import subprocess
 
-from langchain_core.runnables.graph import MermaidDrawMethod
-
 from graph.graph import build_graph
+from langchain_core.runnables.graph import MermaidDrawMethod
 
 graph = build_graph()
 

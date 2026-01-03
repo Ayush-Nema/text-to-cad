@@ -1,44 +1,75 @@
-from langgraph.graph import StateGraph, END
-
 from graph.nodes import (
-    generate_dimensions,
+    get_dimensions,
     validate_dimensions,
-    cad_generator,
-    refine_dimensions
+    get_design_instructions,
+    generate_cad_program,
+    validate_program
 )
 from graph.state import CADState
+from langgraph.graph import StateGraph, END
 
 
 def build_graph():
     workflow = StateGraph(CADState)
 
-    workflow.add_node("generate", generate_dimensions)
-    workflow.add_node("validate", validate_dimensions)
-    workflow.add_node("cad", cad_generator)
-    workflow.add_node("refine", refine_dimensions)
+    workflow.add_node("get_dimensions", get_dimensions)
+    workflow.add_node("validate_dimensions", validate_dimensions)
+    workflow.add_node("get_design_instructions", get_design_instructions)
+    workflow.add_node("generate_cad_program", generate_cad_program)
+    workflow.add_node("validate_program", validate_program)
 
-    workflow.set_entry_point("generate")
+    workflow.set_entry_point("get_dimensions")
 
-    workflow.add_edge("generate", "validate")
+    workflow.add_edge("get_dimensions", "validate_dimensions")
 
     workflow.add_conditional_edges(
-        "validate",
+        "validate_dimensions",
         lambda s: "ok" if s["validation_status"] == "valid" else "fix",
         {
-            "ok": "cad",
-            "fix": "generate"
+            "ok": "get_design_instructions",
+            "fix": "get_dimensions"
         }
     )
 
-    workflow.add_conditional_edges(
-        "cad",
-        lambda s: "refine" if "refine" in s["messages"][-1].content.lower() else "end",
-        {
-            "refine": "refine",
-            "end": END
-        }
-    )
-
-    workflow.add_edge("refine", "cad")
+    workflow.add_edge("get_design_instructions", "generate_cad_program")
+    workflow.add_edge("generate_cad_program", "validate_program")
+    workflow.add_edge("validate_program", END)
 
     return workflow.compile()
+
+
+class buildGraph:
+    def __init__(self, state):
+        self.workflow = StateGraph(state)
+
+        self.workflow.add_node("get_dimensions", get_dimensions)
+        self.workflow.add_node("validate_dimensions", validate_dimensions)
+        self.workflow.add_node("get_design_instructions", get_design_instructions)
+        self.workflow.add_node("refine", validate_program)
+
+        self.workflow.set_entry_point("get_dimensions")
+
+    def build_graph_1(self):
+        self.workflow.add_edge("get_dimensions", "validate_dimensions")
+
+        self.workflow.add_conditional_edges(
+            "validate_dimensions",
+            lambda s: "ok" if s["validation_status"] == "valid" else "fix",
+            {
+                "ok": "get_design_instructions",
+                "fix": "get_dimensions"
+            }
+        )
+
+        self.workflow.add_conditional_edges(
+            "get_design_instructions",
+            lambda s: "refine" if "refine" in s["messages"][-1].content.lower() else "end",
+            {
+                "refine": "refine",
+                "end": END
+            }
+        )
+
+        self.workflow.add_edge("refine", "get_design_instructions")
+
+        return self.workflow.compile()
