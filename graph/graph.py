@@ -39,11 +39,19 @@ def build_graph():
 
     workflow.add_edge("get_design_instructions", "generate_cad_program")
     workflow.add_edge("generate_cad_program", "validate_program")
-    workflow.add_edge("validate_program", "design_critique")
+
+    workflow.add_conditional_edges(
+        "validate_program",
+        lambda s: "ok" if s["code_validation_status"] == "valid" else "fix",
+        {
+            "ok": "design_critique",
+            "fix": "generate_cad_program"
+        }
+    )
 
     workflow.add_conditional_edges(
         "design_critique",
-        lambda s: "ok" if s["code_validation_status"] == "valid" else "feedback",
+        lambda s: "ok" if s["design_review_status"] == "valid" else "feedback",
         {
             "ok": END,
             "feedback": "generate_cad_program"
