@@ -8,6 +8,9 @@ from utils.utils import load_md, parse_json
 # from rich.traceback import install
 # install()
 
+def extract_human_message(state):
+    return state
+
 
 def get_dimensions(state):
     llm = ChatOpenAI(
@@ -109,4 +112,8 @@ def validate_program(state):
     else:
         state["program_validation_status"] = "invalid"
 
+    return state
+
+
+def design_critique(state):
     return state

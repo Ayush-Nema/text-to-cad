@@ -1,24 +1,30 @@
 from graph.nodes import (
+    extract_human_message,
     get_dimensions,
     validate_dimensions,
     get_design_instructions,
     generate_cad_program,
-    validate_program
+    validate_program,
+    design_critique
 )
 from graph.state import CADState
-from langgraph.graph import StateGraph, END
+from langgraph.graph import StateGraph, END, START
 
 
 def build_graph():
     workflow = StateGraph(CADState)
 
+    workflow.add_node("extract_human_msg", extract_human_message)
     workflow.add_node("get_dimensions", get_dimensions)
     workflow.add_node("validate_dimensions", validate_dimensions)
     workflow.add_node("get_design_instructions", get_design_instructions)
     workflow.add_node("generate_cad_program", generate_cad_program)
     workflow.add_node("validate_program", validate_program)
+    workflow.add_node("design_critique", design_critique)
 
-    workflow.set_entry_point("get_dimensions")
+    # workflow.set_entry_point("get_dimensions")
+    workflow.add_edge(START, "get_dimensions")
+    workflow.add_edge(START, "extract_human_msg")
 
     workflow.add_edge("get_dimensions", "validate_dimensions")
 
@@ -33,12 +39,21 @@ def build_graph():
 
     workflow.add_edge("get_design_instructions", "generate_cad_program")
     workflow.add_edge("generate_cad_program", "validate_program")
-    workflow.add_edge("validate_program", END)
+    workflow.add_edge("validate_program", "design_critique")
+
+    workflow.add_conditional_edges(
+        "design_critique",
+        lambda s: "ok" if s["code_validation_status"] == "valid" else "feedback",
+        {
+            "ok": END,
+            "feedback": "generate_cad_program"
+        }
+    )
 
     return workflow.compile()
 
 
-class buildGraph:
+class BuildGraph:
     def __init__(self, state):
         self.workflow = StateGraph(state)
 
