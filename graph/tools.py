@@ -2,7 +2,7 @@ from typing import List, Dict
 
 from langchain_core.tools import tool
 
-from app.chroma import CadQueryKnowledgeBase
+from manage_vector_db import CadQueryKnowledgeBase
 
 
 # @tool

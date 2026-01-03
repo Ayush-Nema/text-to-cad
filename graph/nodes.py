@@ -1,39 +1,21 @@
-import json
-
 from graph.data_models import DesignInstructions
 from graph.tools import retrieve_cadquery_context
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
+from utils.utils import load_md, parse_json
 
 
 # from rich.traceback import install
 # install()
 
 
-def load_md(md_path):
-    with open(md_path, "r", encoding="utf-8") as fp:
-        return fp.read()
-
-
-def parse_json(ai_response):
-    try:
-        clean_str = ai_response.content.strip('`json\n').strip('`')
-        args = json.loads(clean_str)
-    except json.JSONDecodeError:
-        args = {}
-    return args
-
-
-# ==========================================
-# NODE: Dimension JSON generator
-# ==========================================
 def get_dimensions(state):
     llm = ChatOpenAI(
         model="gpt-4.1",
         temperature=0.0
     )
 
-    system_prompt = load_md("app/prompts/prompt_to_dims.md")
+    system_prompt = load_md("prompts/prompt_to_dims.md")
 
     messages = [{"role": "system", "content": system_prompt}]
     messages += state["messages"]
@@ -51,9 +33,6 @@ def get_dimensions(state):
     }
 
 
-# ==========================================
-# NODE: Validate JSON
-# ==========================================
 def validate_dimensions(state):
     # todo: add more validation logics here
     # todo: ask LLM whether these dims looks realistic or not. extract dims if present in the prompt else generate
@@ -68,9 +47,6 @@ def validate_dimensions(state):
     return state
 
 
-# ==========================================
-# NODE: CAD generator placeholder
-# ==========================================
 def get_design_instructions(state):
     """
     """
@@ -79,11 +55,13 @@ def get_design_instructions(state):
         temperature=0.0
     ).with_structured_output(DesignInstructions)
 
-    system_prompt = load_md("app/prompts/design_instructions.md")
+    system_prompt = load_md("prompts/design_instructions.md")
     messages = [{"role": "system", "content": system_prompt}]
     messages += state["messages"]
 
     # Invoke LLM — returns a DesignInstructions object, NOT a string
+    # todo: currently, `messages` is a list of all messages. Undesirable. Format the prompt.
+    # todo: `messages` should contain state.dimensions and state.humanMessages
     design_obj: DesignInstructions = llm.invoke(messages)
 
     # Update the state
@@ -105,7 +83,7 @@ def generate_cad_program(state):
     # llm_with_tools = llm.bind_tools([retrieve_cadquery_context])
     docs_and_exs = retrieve_cadquery_context(state["design_instructions"])
 
-    system_prompt = load_md("app/prompts/cad_generation.md")
+    system_prompt = load_md("prompts/cad_generation.md")
     prompt = system_prompt.format(
         docs_and_exs=docs_and_exs,
         dimensions=state["dimensions"],
@@ -123,9 +101,6 @@ def generate_cad_program(state):
     }
 
 
-# ==========================================
-# NODE: Validate CAD program
-# ==========================================
 def validate_program(state):
     data = state.get("cadquery_program")
 

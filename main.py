@@ -26,7 +26,7 @@ while True:
     result = graph.invoke(state)
 
     # print(result.keys())
-    print("▶︎ Design dimensions: \n", result.get("dimension_json"))
+    print("▶︎ Design dimensions: \n", result.get("dimensions"))
     print("-----------")
     print("▶︎ Design instructions: \n", result.get("design_instructions"))
     print("-----------")
