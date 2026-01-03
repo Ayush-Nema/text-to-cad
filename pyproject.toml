@@ -1,14 +1,16 @@
 [project]
 name = "text-to-cad"
 version = "0.1.0"
-description = "Add your description here"
+description = "Convert natural language queries to CAD design. The CAD design is just few prompts away!"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "cadquery>=2.6.1",
     "dotenv>=0.9.9",
     "langchain-openai>=1.1.6",
     "langgraph>=1.0.5",
     "pydantic>=2.12.5",
+    "pyvista>=0.46.4",
 ]
 
 [dependency-groups]
