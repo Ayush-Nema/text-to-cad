@@ -13,5 +13,10 @@ class CADState(TypedDict):
     dimensions: dict
     design_instructions: List[str]
     design_summary: str
-    program_validation_status: str
     cadquery_program: str
+
+    # validation flags
+    is_dims_valid: bool
+    is_code_valid: bool
+    is_review_passed: bool
+

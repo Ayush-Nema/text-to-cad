@@ -42,7 +42,7 @@ def build_graph():
 
     workflow.add_conditional_edges(
         "validate_program",
-        lambda s: "ok" if s["code_validation_status"] == "valid" else "fix",
+        lambda s: "ok" if s["is_code_valid"] else "fix",
         {
             "ok": "design_critique",
             "fix": "generate_cad_program"

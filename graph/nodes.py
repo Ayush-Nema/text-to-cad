@@ -108,9 +108,9 @@ def validate_program(state):
     data = state.get("cadquery_program")
 
     if data:
-        state["program_validation_status"] = "valid"
+        state["is_code_valid"] = True
     else:
-        state["program_validation_status"] = "invalid"
+        state["is_code_valid"] = False
 
     return state
 
