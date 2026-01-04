@@ -2,50 +2,54 @@ import ast
 import os
 import sys
 import warnings
-from typing import Dict, Any
+from typing import Any
 
 import cadquery as cq
+from graph.state import CodeInsights
 
 
-def validate_cadquery_code(code: str, *, expected_files=("object.stl", "object.step"), warning_free: bool = False,
-) -> Dict[str, Any]:
+def validate_cadquery_code(code: str) -> CodeInsights:
     """
-    Validates generated CadQuery Python code.
+    Validates LLM-generated CadQuery Python code.
 
-    Checks (in order):
+    Checks:
     1. Python syntax (AST parse)
     2. CadQuery import presence (warning only)
     3. Runtime execution
     4. Presence of `model`
-    5. STL / STEP export existence
+    5. `.val()` geometry sanity check
+    6. STL / STEP file existence
 
-    Returns a structured result for LangGraph branching.
+    Returns a structured dict with keys:
+    is_code_valid, error_stack, line_no, warning_msgs
     """
 
+    expected_files = ("object.stl", "object.step")
+    warning_msgs = []
+
     # ----------------------------
-    # 1. Syntax pre-check (FAST)
+    # 1. Syntax pre-check
     # ----------------------------
     try:
         ast.parse(code)
     except SyntaxError as e:
-        return {
-            "is_code_valid": False,
-            "error": f"SyntaxError at line {e.lineno}: {e.msg}",
-            "line": e.lineno,
-            "warnings": [],
-        }
+        return CodeInsights(
+            is_code_valid=False,
+            error_stack=f"SyntaxError at line {e.lineno}: {e.msg}",
+            line_no=e.lineno,
+            warning_msgs=warning_msgs,
+        )
 
     # ----------------------------
     # 2. Soft CadQuery import check
     # ----------------------------
-    warnings_list = []
     try:
         tree = ast.parse(code)
         has_cq_import = any(
             isinstance(node, (ast.Import, ast.ImportFrom)) and
             (
                     any(
-                        alias.name.startswith("cadquery")
+                        getattr(alias, "name", "").startswith("cadquery")
                         for alias in getattr(node, "names", [])
                     ) or
                     getattr(node, "module", "").startswith("cadquery")
@@ -53,11 +57,11 @@ def validate_cadquery_code(code: str, *, expected_files=("object.stl", "object.s
             for node in ast.walk(tree)
         )
         if not has_cq_import:
-            warnings_list.append(
+            warning_msgs.append(
                 "CadQuery import not found. Expected: import cadquery as cq"
             )
-    except Exception:
-        # AST already parsed successfully above; this is defensive
+    except Exception:  # type: ignore
+        # Defensive, ignore
         pass
 
     # ----------------------------
@@ -76,72 +80,79 @@ def validate_cadquery_code(code: str, *, expected_files=("object.stl", "object.s
     }
     exec_locals = {}
 
-    with warnings.catch_warnings(record=True) as runtime_warnings:
+    runtime_warnings = []
+    with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
-
         try:
             exec(code, exec_globals, exec_locals)
+            runtime_warnings.extend([str(warn.message) for warn in w])
         except Exception as e:
             exc_type, _, exc_tb = sys.exc_info()
-            return {
-                "is_code_valid": False,
-                "error": f"{exc_type.__name__} at line {exc_tb.tb_lineno}: {str(e)}",
-                "line": exc_tb.tb_lineno if exc_tb else None,
-                "warnings": warnings_list + [str(w.message) for w in runtime_warnings],
-            }
+            return CodeInsights(
+                is_code_valid=False,
+                error_stack=f"{exc_type.__name__} at line {exc_tb.tb_lineno}: {str(e)}",
+                line_no=exc_tb.tb_lineno if exc_tb else None,
+                warning_msgs=warning_msgs + runtime_warnings,
+            )
 
     # ----------------------------
     # 5. Validate `model` contract
     # ----------------------------
-    model = exec_locals.get("model") or exec_globals.get("model")
+    model: Any = exec_locals.get("model") or exec_globals.get("model")
     if model is None:
-        return {
-            "is_code_valid": False,
-            "error": "No `model` object was created. The final CAD object must be assigned to `model`.",
-            "line": None,
-            "warnings": warnings_list,
-        }
+        return CodeInsights(
+            is_code_valid=False,
+            error_stack="No `model` object was created. The final CAD object must be assigned to `model`.",
+            line_no=None,
+            warning_msgs=warning_msgs + runtime_warnings,
+        )
 
-    # Optional minimal geometry sanity check
+    # Safe .val() geometry check
+    if not hasattr(model, "val"):
+        return CodeInsights(
+            is_code_valid=False,
+            error_stack="`model` exists but does not have a `.val()` method (invalid geometry).",
+            line_no=None,
+            warning_msgs=warning_msgs + runtime_warnings,
+        )
+
+    # Optional: trigger .val() to catch runtime CAD errors
     try:
         model.val()
-    except Exception:
-        return {
-            "is_code_valid": False,
-            "error": "`model` exists but does not contain valid geometry.",
-            "line": None,
-            "warnings": warnings_list,
-        }
+    except Exception as e:
+        return CodeInsights(
+            is_code_valid=False,
+            error_stack=f"Geometry error in `model.val()`: {str(e)}",
+            line_no=None,
+            warning_msgs=warning_msgs + runtime_warnings,
+        )
 
     # ----------------------------
     # 6. Validate exports
     # ----------------------------
     missing_files = [f for f in expected_files if not os.path.exists(f)]
     if missing_files:
-        return {
-            "is_code_valid": False,
-            "error": f"Missing exported files: {missing_files}",
-            "line": None,
-            "warnings": warnings_list,
-        }
+        return CodeInsights(
+            is_code_valid=False,
+            error_stack=f"Missing exported files: {missing_files}",
+            line_no=None,
+            warning_msgs=warning_msgs + runtime_warnings,
+        )
+
+    all_warnings = warning_msgs + runtime_warnings
 
     # ----------------------------
-    # 7. Final success
+    # Success
     # ----------------------------
-    runtime_warning_msgs = [str(w.message) for w in runtime_warnings]
-    all_warnings = warnings_list + runtime_warning_msgs
-
-    if warning_free and all_warnings:
-        return {
-            "is_code_valid": False,
-            "error": "Warnings detected but warning_free=True",
-            "line": None,
-            "warnings": all_warnings,
-        }
-
-    return {
-        "is_code_valid": True,
-        "error": None,
-        "line": None,
-        "warnings": all_warnings,
-    }
+    # return {
+    #     "is_code_valid": True,
+    #     "error_stack": None,
+    #     "line_no": None,
+    #     "warning_msgs": all_warnings,
+    # }
+    return CodeInsights(
+        is_code_valid=True,
+        error_stack=None,
+        line_no=None,
+        warning_msgs=all_warnings,
+    )

@@ -2,6 +2,14 @@ from typing import Annotated, List, Union, TypedDict
 
 from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.graph.message import add_messages
+from pydantic import BaseModel
+
+
+class CodeInsights(BaseModel):
+    is_code_valid: bool
+    error_stack: str
+    line_no: int
+    warning_msgs: List[str]
 
 
 class CADState(TypedDict):
@@ -20,3 +28,5 @@ class CADState(TypedDict):
     is_code_valid: bool
     is_review_passed: bool
 
+    # code validation
+    code_insights: CodeInsights

@@ -26,11 +26,9 @@ while True:
     result = graph.invoke(state)
 
     # print(result.keys())
-    print("▶︎ Design dimensions: \n", result.get("dimensions"))
-    print("-----------")
-    print("▶︎ Design instructions: \n", result.get("design_instructions"))
-    print("-----------")
-    print("▶︎ Program: \n", result.get("cadquery_program"))
+    print("▶︎ Design dimensions: \n", result.get("dimensions"), end="\n-----------")
+    print("▶︎ Design instructions: \n", result.get("design_instructions"), end="\n-----------")
+    print("▶︎ Program: \n", result.get("cadquery_program"), end="\n-----------")
     print("\n")
 
     # state updates propagate automatically
