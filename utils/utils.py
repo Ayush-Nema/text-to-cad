@@ -1,4 +1,5 @@
 import json
+import re
 import time
 
 
@@ -25,3 +26,19 @@ def parse_json(ai_response):
     except json.JSONDecodeError:
         args = {}
     return args
+
+
+def strip_markdown_code_fences(text: str) -> str:
+    text = text.strip()
+
+    # Pattern to match opening fence (``` or ```python) at the start
+    opening_fence_pattern = r"^```(?:python)?\s*"
+    # Pattern to match closing fence (```) at the end
+    closing_fence_pattern = r"\s*```$"
+
+    # Remove the opening fence
+    text = re.sub(opening_fence_pattern, "", text, flags=re.DOTALL)
+    # Remove the closing fence
+    text = re.sub(closing_fence_pattern, "", text, flags=re.DOTALL)
+
+    return text

@@ -1,6 +1,6 @@
 """
 - python -m graph.visualize
-- python -m run
+- python -m main
 
 example_prompts:
 1. screw 24mm long with circular top and threads
@@ -29,6 +29,7 @@ while True:
     print("▶︎ Design dimensions: \n", result.get("dimensions"), end="\n-----------")
     print("▶︎ Design instructions: \n", result.get("design_instructions"), end="\n-----------")
     print("▶︎ Program: \n", result.get("cadquery_program"), end="\n-----------")
+    print("▶︎ Code validation status: \n", result.get("code_insights")['is_code_valid'], end="\n-----------")
     print("\n")
 
     # state updates propagate automatically
