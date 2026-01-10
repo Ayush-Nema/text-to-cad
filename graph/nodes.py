@@ -11,6 +11,7 @@ from graph.tools import retrieve_cadquery_context
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 from utils.utils import load_md, parse_json, strip_markdown_code_fences
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 
 # from rich.traceback import install
@@ -27,20 +28,22 @@ def get_dimensions(state):
     )
 
     system_prompt = load_md("prompts/prompt_to_dims.md")
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", system_prompt),
+        MessagesPlaceholder("messages")  # pulls messages from state automatically
+    ])
+    chain = prompt | llm
 
-    messages = [{"role": "system", "content": system_prompt}]
-    messages += state["messages"]
-
-    response = llm.invoke(input=messages)
-
-    # Parse JSON output from LLM
+    # invoke the chain with current messages
+    response = chain.invoke({"messages": state["messages"]})
+    # parse JSON output
     args = parse_json(response)
 
-    print("Exiting `get_dimensions` node")
+    print("Finished processing `get_dimensions` node")
+
     return {
-        **state,
-        "dimensions": args,
-        "messages": state["messages"] + [AIMessage(content=str(args))]
+        "dimensions": args,  # new field in state
+        "messages": [AIMessage(content=str(args))]  # reducer will append this automatically
     }
 
 
@@ -59,30 +62,25 @@ def validate_dimensions(state):
 
 
 def get_design_instructions(state):
-    """
-    """
     llm = ChatOpenAI(
         model="gpt-4.1",
         temperature=0.0
     ).with_structured_output(DesignInstructions)
 
     system_prompt = load_md("prompts/design_instructions.md")
-    messages = [{"role": "system", "content": system_prompt}]
-    messages += state["messages"]
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", system_prompt),
+        MessagesPlaceholder("messages")  # pull prior messages from state
+    ])
 
-    # Invoke LLM — returns a DesignInstructions object, NOT a string
-    # todo: currently, `messages` is a list of all messages. Undesirable. Format the prompt.
-    # todo: `messages` should contain state.dimensions and state.humanMessages
-    design_obj: DesignInstructions = llm.invoke(messages)
-
-    # Update the state
-    state["design_instructions"] = design_obj.design_instructions
-    state["object_name"] = design_obj.object_name
-    state["object_summary"] = design_obj.summary
+    chain = prompt | llm
+    design_obj: DesignInstructions = chain.invoke({"messages": state["messages"]})
 
     return {
-        **state,
-        "messages": state["messages"] + [AIMessage(content=design_obj.model_dump_json())],
+        "design_instructions": design_obj.design_instructions,
+        "object_name": design_obj.object_name,
+        "object_summary": design_obj.summary,
+        "messages": [AIMessage(content=design_obj.model_dump_json())],  # reducer appends
     }
 
 
@@ -95,16 +93,17 @@ def generate_cad_program(state):
     docs_and_exs = retrieve_cadquery_context(state["design_instructions"])
 
     system_prompt = load_md("prompts/cad_generation.md")
-    prompt = system_prompt.format(
-        docs_and_exs=docs_and_exs,
-        dimensions=state["dimensions"],
-        design_instructions="\n".join(
+    prompt = ChatPromptTemplate.from_messages([("system", system_prompt)])
+    chain = prompt | llm
+    response = chain.invoke({
+        "docs_and_exs": docs_and_exs,
+        "dimensions": state["dimensions"],
+        "design_instructions": "\n".join(
             f"{i + 1}. {step}"
             for i, step in enumerate(state["design_instructions"])
         ),
-    )
+    })
 
-    response = llm.invoke([{"role": "system", "content": prompt}])
     generated_prog: str = strip_markdown_code_fences(response.content)
     print(f"Exiting generated_cad_program node with this code: \n{generated_prog}", end="\n==============\n")
 

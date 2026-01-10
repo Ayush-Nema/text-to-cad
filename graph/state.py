@@ -6,7 +6,6 @@ from pydantic import BaseModel
 
 
 class CodeInsights(BaseModel):
-    is_code_valid: bool
     error_stack: str
     line_no: Optional[int]
     warning_msgs: List[str]
