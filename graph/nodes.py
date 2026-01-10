@@ -182,15 +182,23 @@ def validate_program(state):
         try:
             exec(prog, exec_globals, exec_locals)
             runtime_warnings.extend([str(warn.message) for warn in w])
-        except Exception as e:
-            exc_type, _, exc_tb = sys.exc_info()
-            print(f"{exc_type.__name__} at line {exc_tb.tb_lineno}: {str(e)}")
+        except Exception:
+            exc_type, exc_value, exc_tb = sys.exc_info()
+            # Walk the traceback to the frame inside the executed code
+            tb = exc_tb
+            while tb.tb_next is not None:
+                tb = tb.tb_next
+            # Get the line number in the executed string
+            lineno = tb.tb_lineno
+            # Extract the actual line from the string
+            line = prog.splitlines()[lineno - 1] if lineno <= len(prog.splitlines()) else "<line not found>"
+            print(f"{exc_type.__name__} at line {lineno}: `{line.strip()}`\nError message: {exc_value}")
             return {
                 **state,
                 "is_code_valid": False,
                 "code_insights": CodeInsights(
-                    error_stack=f"{exc_type.__name__} at line {exc_tb.tb_lineno}: {str(e)}",
-                    line_no=exc_tb.tb_lineno if exc_tb else None,
+                    error_stack=f"{exc_type.__name__} at line {lineno}: `{line.strip()}`\nError message: {exc_value}",
+                    line_no=lineno,
                     warning_msgs=warning_msgs + runtime_warnings,
                 )}
 
