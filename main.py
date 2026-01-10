@@ -23,7 +23,7 @@ while True:
         break
 
     state["messages"] += [HumanMessage(content=user)]
-    result = graph.invoke(state)
+    result = graph.invoke(state, {"recursion_limit": 20})
 
     # print(result.keys())
     print("▶︎ Design dimensions: \n", result.get("dimensions"), end="\n-----------")
