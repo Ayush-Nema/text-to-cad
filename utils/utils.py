@@ -42,3 +42,16 @@ def strip_markdown_code_fences(text: str) -> str:
     text = re.sub(closing_fence_pattern, "", text, flags=re.DOTALL)
 
     return text
+
+
+def replace_curly_braces(t: str):
+    """
+    LangChain interprets single curly braces {} as template variables.
+    Thus, content in prompt like raw JSON breaks the code.
+    Simple fix: escape all { and } inside the prompt by doubling them
+    { → {{
+    } → }}
+    """
+    t = t.replace("{", "{{")
+    t = t.replace('}', '}}')
+    return t

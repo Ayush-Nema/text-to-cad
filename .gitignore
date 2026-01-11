@@ -7,3 +7,5 @@ chroma_cadquery
 
 # files
 .env
+*.stl
+*.step

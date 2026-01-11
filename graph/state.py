@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 
 class CodeInsights(BaseModel):
-    error_stack: str
+    error_stack: Optional[str]
     line_no: Optional[int]
     warning_msgs: List[str]
 
@@ -24,7 +24,7 @@ class CADState(TypedDict):
 
     # validation flags
     is_dims_valid: bool
-    is_code_valid: bool  # todo: repeated. also present in code_insights. remove from latter.
+    is_code_valid: bool
     is_review_passed: bool
 
     # code validation

@@ -10,7 +10,7 @@ from graph.state import CodeInsights
 from graph.tools import retrieve_cadquery_context
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
-from utils.utils import load_md, parse_json, strip_markdown_code_fences
+from utils.utils import load_md, parse_json, strip_markdown_code_fences, replace_curly_braces
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 
@@ -28,6 +28,9 @@ def get_dimensions(state):
     )
 
     system_prompt = load_md("prompts/prompt_to_dims.md")
+    # replace curly braces ({...}) with double braces ({{...}}). needed for langGraph interpretation of placeholders
+    system_prompt = replace_curly_braces(system_prompt)
+
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_prompt),
         MessagesPlaceholder("messages")  # pulls messages from state automatically
@@ -68,6 +71,8 @@ def get_design_instructions(state):
     ).with_structured_output(DesignInstructions)
 
     system_prompt = load_md("prompts/design_instructions.md")
+    system_prompt = replace_curly_braces(system_prompt)
+
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_prompt),
         MessagesPlaceholder("messages")  # pull prior messages from state
@@ -93,6 +98,7 @@ def generate_cad_program(state):
     docs_and_exs = retrieve_cadquery_context(state["design_instructions"])
 
     system_prompt = load_md("prompts/cad_generation.md")
+    system_prompt = replace_curly_braces(system_prompt)
     prompt = ChatPromptTemplate.from_messages([("system", system_prompt)])
     chain = prompt | llm
     response = chain.invoke({
@@ -179,7 +185,7 @@ def validate_program(state):
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         try:
-            exec(prog, exec_globals, exec_locals)
+            exec(prog, exec_globals)
             runtime_warnings.extend([str(warn.message) for warn in w])
         except Exception:
             exc_type, exc_value, exc_tb = sys.exc_info()

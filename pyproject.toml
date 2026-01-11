@@ -24,6 +24,8 @@ dependencies = [
     "langchain-text-splitters>=1.1.0",
     "tqdm>=4.67.1",
     "cadquery>=2.6.1",
+    "trimesh>=4.11.0",
+    "matplotlib>=3.10.8",
 ]
 
 [dependency-groups]
