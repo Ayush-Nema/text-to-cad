@@ -1,17 +1,19 @@
 import ast
 import os
+import shutil
 import sys
 import warnings
+from pathlib import Path
 from typing import Any
-from vector_db import setup_or_initialize_kb
+
 import cadquery as cq
 from graph.data_models import DesignInstructions
 from graph.state import CodeInsights
-from graph.tools import retrieve_cadquery_context
 from langchain_core.messages import AIMessage
-from langchain_openai import ChatOpenAI
-from utils.utils import load_md, parse_json, strip_markdown_code_fences, replace_curly_braces
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_openai import ChatOpenAI
+from utils.utils import parse_json, strip_markdown_code_fences, load_and_format_prompt
+from vector_db import setup_or_initialize_kb
 
 
 # from rich.traceback import install
@@ -27,9 +29,7 @@ def get_dimensions(state):
         temperature=0.0
     )
 
-    system_prompt = load_md("prompts/prompt_to_dims.md")
-    # replace curly braces ({...}) with double braces ({{...}}). needed for langGraph interpretation of placeholders
-    system_prompt = replace_curly_braces(system_prompt)
+    system_prompt = load_and_format_prompt("prompts/prompt_to_dims.md")
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_prompt),
@@ -70,8 +70,7 @@ def get_design_instructions(state):
         temperature=0.0
     ).with_structured_output(DesignInstructions)
 
-    system_prompt = load_md("prompts/design_instructions.md")
-    system_prompt = replace_curly_braces(system_prompt)
+    system_prompt = load_and_format_prompt("prompts/design_instructions.md")
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_prompt),
@@ -111,28 +110,48 @@ def retrieve_context(state):
 
 
 def generate_cad_program(state):
-    llm = ChatOpenAI(
-        model="gpt-4.1",
-        temperature=0.0,
-    )
-    system_prompt = load_md("prompts/cad_generation.md")
-    system_prompt = replace_curly_braces(system_prompt)
+    llm = ChatOpenAI(model="gpt-4.1", temperature=0.0)
+
+    # determine prompt and variables based on state
+    if state.get('is_code_valid', None) is False:  # represents flow for Code failure
+        prompt_path = "prompts/cad_code_validation.md"
+        variables = {
+            "cadquery_program": state["cadquery_program"],
+            "error_stack": state["code_insights"]["error_stack"],
+            "line_no": state["code_insights"]["line_no"],
+            "warning_msgs": state["code_insights"]["warning_msgs"],
+        }
+
+    elif state.get('is_review_passed', None) is False:  # represents flow for Review failure
+        prompt_path = "prompts/cad_review_fix.md"
+        variables = {
+            "previous_code": state["generated_code"],
+            "review_feedback": state["review_feedback"],
+            # todo: ... other variables for this case
+        }
+
+    else:
+        prompt_path = "prompts/cad_generation.md"
+        variables = {
+            "docs_and_exs": state["cadquery_context"],
+            "dimensions": state["dimensions"],
+            "design_instructions": "\n".join(
+                f"{i + 1}. {step}"
+                for i, step in enumerate(state["design_instructions"])
+            ),
+        }
+
+    # Single chain creation and invocation
+    system_prompt = load_and_format_prompt(prompt_path)
     prompt = ChatPromptTemplate.from_messages([("system", system_prompt)])
     chain = prompt | llm
-    response = chain.invoke({
-        "docs_and_exs": state["cadquery_context"],
-        "dimensions": state["dimensions"],
-        "design_instructions": "\n".join(
-            f"{i + 1}. {step}"
-            for i, step in enumerate(state["design_instructions"])
-        ),
-    })
+    response = chain.invoke(variables)
 
     generated_prog: str = strip_markdown_code_fences(response.content)
     print(f"Exiting generated_cad_program node with this code: \n{generated_prog}", end="\n==============\n")
 
     return {
-        **state,
+
         "cadquery_program": generated_prog,
     }
 
@@ -151,7 +170,6 @@ def validate_program(state):
     except SyntaxError as e:
         print(f"SyntaxError at line {e.lineno}: {e.msg}")
         return {
-            **state,
             "is_code_valid": False,
             "code_insights": CodeInsights(
                 error_stack=f"SyntaxError at line {e.lineno}: {e.msg}",
@@ -217,7 +235,6 @@ def validate_program(state):
             line = prog.splitlines()[lineno - 1] if lineno <= len(prog.splitlines()) else "<line not found>"
             print(f"{exc_type.__name__} at line {lineno}: `{line.strip()}`\nError message: {exc_value}")
             return {
-                **state,
                 "is_code_valid": False,
                 "code_insights": CodeInsights(
                     error_stack=f"{exc_type.__name__} at line {lineno}: `{line.strip()}`\nError message: {exc_value}",
@@ -232,7 +249,6 @@ def validate_program(state):
     if model is None:
         print("No `model` object was created. The final CAD object must be assigned to `model`.")
         return {
-            **state,
             "is_code_valid": False,
             "code_insights": CodeInsights(
                 error_stack="No `model` object was created. The final CAD object must be assigned to `model`.",
@@ -244,7 +260,6 @@ def validate_program(state):
     if not hasattr(model, "val"):
         print("`model` exists but does not have a `.val()` method (invalid geometry).")
         return {
-            **state,
             "is_code_valid": False,
             "code_insights": CodeInsights(
                 error_stack="`model` exists but does not have a `.val()` method (invalid geometry).",
@@ -258,7 +273,6 @@ def validate_program(state):
     except Exception as e:
         print(f"Geometry error in `model.val()`: {str(e)}")
         return {
-            **state,
             "is_code_valid": False,
             "code_insights": CodeInsights(
                 error_stack=f"Geometry error in `model.val()`: {str(e)}",
@@ -273,7 +287,6 @@ def validate_program(state):
     if missing_files:
         print(f"Missing exported files: {missing_files}")
         return {
-            **state,
             "is_code_valid": False,
             "code_insights": CodeInsights(
                 error_stack=f"Missing exported files: {missing_files}",
@@ -286,7 +299,6 @@ def validate_program(state):
 
     # Success
     return {
-        **state,
         "is_code_valid": True,
         "code_insights": CodeInsights(
             error_stack=None,
@@ -296,5 +308,26 @@ def validate_program(state):
     }
 
 
+def exporter():
+    output_dir = "output"
+
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    source_files = ["object.stl", "object.step"]
+    exported_files = {}
+
+    for filename in source_files:
+        src = Path(filename)
+        if src.exists():
+            dest = output_path / filename
+            shutil.move(src, dest)
+            exported_files[src.suffix.lstrip(".")] = str(dest)
+
+    return {"exported_files": exported_files}
+
+
 def design_critique(state):
+    llm = ChatOpenAI(model="gpt-4o", temperature=0.0)
+
     return state

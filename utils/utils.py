@@ -1,3 +1,4 @@
+import base64
 import json
 import re
 import time
@@ -28,6 +29,11 @@ def parse_json(ai_response):
     return args
 
 
+def encode_image(image_path):
+    with open(image_path, "rb") as image_file:
+        return base64.standard_b64encode(image_file.read()).decode("utf-8")
+
+
 def strip_markdown_code_fences(text: str) -> str:
     text = text.strip()
 
@@ -55,3 +61,9 @@ def replace_curly_braces(t: str):
     t = t.replace("{", "{{")
     t = t.replace('}', '}}')
     return t
+
+
+def load_and_format_prompt(md_path):
+    prompt = load_md(md_path)
+    prompt = replace_curly_braces(prompt)
+    return prompt

@@ -6,6 +6,7 @@ from graph.nodes import (
     retrieve_context,
     generate_cad_program,
     validate_program,
+    exporter,
     design_critique
 )
 from graph.state import CADState
@@ -22,6 +23,7 @@ def build_graph():
     workflow.add_node("retrieve_context", retrieve_context)
     workflow.add_node("generate_cad_program", generate_cad_program)
     workflow.add_node("validate_program", validate_program)
+    workflow.add_node("exporter", exporter)
     workflow.add_node("design_critique", design_critique)
 
     # workflow.set_entry_point("get_dimensions")
@@ -47,10 +49,11 @@ def build_graph():
         "validate_program",
         lambda s: "ok" if s["is_code_valid"] else "feedback",
         {
-            "ok": "design_critique",
+            "ok": "exporter",
             "feedback": "generate_cad_program"
         }
     )
+    workflow.add_edge("exporter", "design_critique")
 
     workflow.add_conditional_edges(
         "design_critique",
