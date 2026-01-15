@@ -19,6 +19,7 @@ class CADState(TypedDict):
     human_messages: List[str]
     dimensions: dict
     design_instructions: List[str]
+    cadquery_context: str
     design_summary: str
     cadquery_program: str
 

@@ -3,7 +3,7 @@ import os
 import sys
 import warnings
 from typing import Any
-
+from vector_db import setup_or_initialize_kb
 import cadquery as cq
 from graph.data_models import DesignInstructions
 from graph.state import CodeInsights
@@ -89,20 +89,38 @@ def get_design_instructions(state):
     }
 
 
+def retrieve_context(state):
+    """
+    Retrieve CadQuery documentation and examples to assist code generation.
+    Returns formatted context suitable for LLM prompts.
+    """
+    # todo: [optional] create a "tool" for open internet search using Tavilly or SerpAPi API
+    kb = setup_or_initialize_kb(examples_dir="../cadquery_info/cq_examples",
+                                pdf_path="../cadquery_info/cadquery-readthedocs-io-en-latest.pdf",
+                                force_reingest=False)
+
+    k_docs, k_examples = 1, 1
+    retrieved = kb.retrieve(
+        design_instructions=state["design_instructions"],
+        k_docs=k_docs,
+        k_examples=k_examples,
+    )
+
+    context = kb.format_context(retrieved)
+    return {"cadquery_context": context}
+
+
 def generate_cad_program(state):
     llm = ChatOpenAI(
         model="gpt-4.1",
         temperature=0.0,
     )
-    # llm_with_tools = llm.bind_tools([retrieve_cadquery_context])
-    docs_and_exs = retrieve_cadquery_context(state["design_instructions"])
-
     system_prompt = load_md("prompts/cad_generation.md")
     system_prompt = replace_curly_braces(system_prompt)
     prompt = ChatPromptTemplate.from_messages([("system", system_prompt)])
     chain = prompt | llm
     response = chain.invoke({
-        "docs_and_exs": docs_and_exs,
+        "docs_and_exs": state["cadquery_context"],
         "dimensions": state["dimensions"],
         "design_instructions": "\n".join(
             f"{i + 1}. {step}"

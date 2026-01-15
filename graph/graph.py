@@ -3,6 +3,7 @@ from graph.nodes import (
     get_dimensions,
     validate_dimensions,
     get_design_instructions,
+    retrieve_context,
     generate_cad_program,
     validate_program,
     design_critique
@@ -18,6 +19,7 @@ def build_graph():
     workflow.add_node("get_dimensions", get_dimensions)
     workflow.add_node("validate_dimensions", validate_dimensions)
     workflow.add_node("get_design_instructions", get_design_instructions)
+    workflow.add_node("retrieve_context", retrieve_context)
     workflow.add_node("generate_cad_program", generate_cad_program)
     workflow.add_node("validate_program", validate_program)
     workflow.add_node("design_critique", design_critique)
@@ -37,7 +39,8 @@ def build_graph():
         }
     )
 
-    workflow.add_edge("get_design_instructions", "generate_cad_program")
+    workflow.add_edge("get_design_instructions", "retrieve_context")
+    workflow.add_edge("retrieve_context", "generate_cad_program")
     workflow.add_edge("generate_cad_program", "validate_program")
 
     workflow.add_conditional_edges(
