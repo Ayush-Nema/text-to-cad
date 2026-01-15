@@ -1,5 +1,8 @@
 """
-Generate screenshots of an object in STL file from 4 different angles
+Generate screenshots of an object in STL file from 4 different angles.
+
+Disclaimer: This script uses `pyvista` which when installed causes clash with `cadquery` over `vtk` module. Thus,
+abandoning the use of the functionalities.
 """
 
 import pyvista as pv
