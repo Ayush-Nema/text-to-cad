@@ -27,8 +27,8 @@ def build_graph():
     workflow.add_node("design_critique", design_critique)
 
     # workflow.set_entry_point("get_dimensions")
-    workflow.add_edge(START, "get_dimensions")
     workflow.add_edge(START, "extract_human_msg")
+    workflow.add_edge("extract_human_msg", "get_dimensions")
 
     workflow.add_edge("get_dimensions", "validate_dimensions")
 
@@ -57,7 +57,7 @@ def build_graph():
 
     workflow.add_conditional_edges(
         "design_critique",
-        lambda s: "ok" if s["design_review_status"] == "valid" else "feedback",
+        lambda s: "ok" if s["is_review_passed"] == "valid" else "feedback",
         {
             "ok": END,
             "feedback": "generate_cad_program"

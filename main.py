@@ -7,10 +7,12 @@ example_prompts:
 2. a car wheel with 250mm diameter and 5 spokes. There should a hole in the center with 15mm diameter
 """
 
+from rich.traceback import install
 from dotenv import load_dotenv
 from graph.graph import build_graph
 from langchain_core.messages import HumanMessage
 
+install(show_locals=False)
 load_dotenv(".env")
 
 graph = build_graph()
@@ -18,7 +20,6 @@ state = {"messages": []}
 
 while True:
     user = input("User: ")
-
     if user == "exit":
         break
 
@@ -30,6 +31,7 @@ while True:
     print("▶︎ Design instructions: \n", result.get("design_instructions"), end="\n-----------")
     print("▶︎ Program: \n", result.get("cadquery_program"), end="\n-----------")
     print("▶︎ Code validation status: \n", result.get("code_insights")['is_code_valid'], end="\n-----------")
+    print("▶︎ Design critique: \n", result.get("design_critique"), end="\n-----------")
     print("\n")
 
     # state updates propagate automatically

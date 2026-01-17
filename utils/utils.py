@@ -2,6 +2,7 @@ import base64
 import json
 import re
 import time
+from functools import wraps
 
 
 def load_md(md_path):
@@ -10,11 +11,13 @@ def load_md(md_path):
 
 
 def timeit(func):
-    def wrapper(state):
-        start = time.time()
-        result = func(state)
-        end = time.time()
-        print(f"{func.__name__} took {end - start:.2f} seconds.")
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start_time = time.perf_counter()  # higher precision
+        result = func(*args, **kwargs)
+        end_time = time.perf_counter()
+        elapsed = end_time - start_time
+        print(f"[{func.__name__}] executed in {elapsed:.6f} seconds")
         return result
 
     return wrapper

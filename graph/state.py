@@ -2,13 +2,26 @@ from typing import Annotated, List, Union, TypedDict, Optional
 
 from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.graph.message import add_messages
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class CodeInsights(BaseModel):
     error_stack: Optional[str]
     line_no: Optional[int]
     warning_msgs: List[str]
+
+
+class CritiqueIssue(BaseModel):
+    category: str = Field(description="geometry, dimensions, practicality, cadquery, intent, image, ambiguity")
+    severity: str = Field(description="critical, major, or minor")
+    description: str
+    suggestion: str
+
+
+class DesignCritiqueResult(BaseModel):
+    status: bool
+    summary: str
+    issues: List[CritiqueIssue]
 
 
 class CADState(TypedDict):
@@ -34,3 +47,5 @@ class CADState(TypedDict):
     # iteration tracker
     current_iter: int
     is_last_iter: bool
+
+    design_critique: Optional[DesignCritiqueResult]

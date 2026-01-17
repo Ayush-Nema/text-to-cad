@@ -8,10 +8,12 @@ from typing import Any
 
 import cadquery as cq
 from graph.data_models import DesignInstructions
-from graph.state import CodeInsights
+from graph.state import CodeInsights, DesignCritiqueResult
 from langchain_core.messages import AIMessage
+from langchain_core.messages import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
+from utils.generate_screenshots import generate_stl_screenshots
 from utils.utils import parse_json, strip_markdown_code_fences, load_and_format_prompt
 from vector_db import setup_or_initialize_kb
 
@@ -19,8 +21,14 @@ from vector_db import setup_or_initialize_kb
 # from rich.traceback import install
 # install()
 
+
 def extract_human_message(state):
-    return state
+    messages = state.get("messages", [])
+    # extract all HumanMessages
+    human_messages = [msg for msg in messages if isinstance(msg, HumanMessage)]
+    # just get the text content
+    human_texts = [msg.content for msg in human_messages]
+    return {"human_messages": human_texts}
 
 
 def get_dimensions(state):
@@ -79,6 +87,7 @@ def get_design_instructions(state):
 
     chain = prompt | llm
     design_obj: DesignInstructions = chain.invoke({"messages": state["messages"]})
+    print("DESIGN INSTRUCTIONS:", design_obj.design_instructions)
 
     return {
         "design_instructions": design_obj.design_instructions,
@@ -110,16 +119,16 @@ def retrieve_context(state):
 
 
 def generate_cad_program(state):
-    llm = ChatOpenAI(model="gpt-4.1", temperature=0.0)
+    llm = ChatOpenAI(model="gpt-4o", temperature=0.0)
 
     # determine prompt and variables based on state
     if state.get('is_code_valid', None) is False:  # represents flow for Code failure
         prompt_path = "prompts/cad_code_validation.md"
         variables = {
             "cadquery_program": state["cadquery_program"],
-            "error_stack": state["code_insights"]["error_stack"],
-            "line_no": state["code_insights"]["line_no"],
-            "warning_msgs": state["code_insights"]["warning_msgs"],
+            "error_stack": state["code_insights"].error_stack,
+            "line_no": state["code_insights"].line_no,
+            "warning_msgs": state["code_insights"].warning_msgs,
         }
 
     elif state.get('is_review_passed', None) is False:  # represents flow for Review failure
@@ -148,7 +157,7 @@ def generate_cad_program(state):
     response = chain.invoke(variables)
 
     generated_prog: str = strip_markdown_code_fences(response.content)
-    print(f"Exiting generated_cad_program node with this code: \n{generated_prog}", end="\n==============\n")
+    # print(f"Exiting generated_cad_program node with this code: \n{generated_prog}", end="\n==============\n")
 
     return {
 
@@ -308,7 +317,7 @@ def validate_program(state):
     }
 
 
-def exporter():
+def exporter(state):
     output_dir = "output"
 
     output_path = Path(output_dir)
@@ -330,4 +339,36 @@ def exporter():
 def design_critique(state):
     llm = ChatOpenAI(model="gpt-4o", temperature=0.0)
 
-    return state
+    # Load system prompt from markdown
+    prompt_text = load_and_format_prompt("prompts/cad_design_critique.md")
+
+    object_img_base64_str = generate_stl_screenshots("output/object.stl", return_base64=True, dpi=80,
+                                                     output_filepath="output/view.png")
+
+    # Include all inputs inside the system prompt
+    full_prompt = f"""
+{prompt_text}
+
+---
+
+## INPUTS FOR REVIEW
+
+### USER REQUEST
+{state['human_messages']}
+
+### IMAGES (base64, may be empty)
+{object_img_base64_str}
+"""
+
+    # System-only message
+    prompt = ChatPromptTemplate.from_messages([("system", full_prompt)])
+
+    # Wrap LLM to produce structured output
+    structured_llm = llm.with_structured_output(DesignCritiqueResult)
+
+    # Invoke LLM and get structured result
+    critique_result = structured_llm.invoke(prompt.format_messages())
+    print(critique_result)
+
+    # Update state
+    return {"design_critique": critique_result, "is_review_passed": critique_result.status}
