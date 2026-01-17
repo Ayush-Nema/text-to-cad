@@ -117,4 +117,4 @@ def generate_stl_screenshots(stl_filepath: str, output_filepath: str = "stl_view
 
 if __name__ == "__main__":
     # Generate screenshots
-    generate_stl_screenshots("cylinder.stl", dpi=80)
+    generate_stl_screenshots("screw.stl", dpi=80)

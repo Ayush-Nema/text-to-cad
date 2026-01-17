@@ -1,20 +1,36 @@
 import cadquery as cq
 
-# =========================
-# Parameters
-# =========================
-diameter = 10.0
-height = 30.0
+# Screw parameters
+head_diameter = 10  # mm
+head_height = 5     # mm
+shaft_diameter = 5  # mm (nominal screw diameter)
+shaft_length = 30   # mm
+hex_flat = 6        # distance across flats of hex head
 
-# =========================
-# Create a cylinder
-# =========================
-cylinder = cq.Workplane("XY").circle(diameter / 2).extrude(height)
+# Create the screw head (hex)
+head = (
+    cq.Workplane("XY")
+    .polygon(6, hex_flat)  # hexagon
+    .extrude(head_height)
+)
 
-# =========================
-# Export STL and STEP
-# =========================
-cq.exporters.export(cylinder, "cylinder.stl")
-cq.exporters.export(cylinder, "cylinder.step")
+# Create the shaft (cylindrical)
+shaft = (
+    cq.Workplane("XY")
+    .workplane(offset=head_height)  # start at top of head
+    .circle(shaft_diameter / 2)
+    .extrude(shaft_length)
+)
 
-print("Exported: cylinder.stl and cylinder.step")
+# Combine head and shaft
+screw = head.union(shaft)
+
+# Optional: add a simple thread representation (just for visualization)
+# CadQuery doesn't create detailed threads easily; this is just a cylinder for now
+# For realistic threads, use cq.Workplane().threadedHole or cadquery-assembly utilities
+
+# Export as STL and STEP
+cq.exporters.export(screw, "screw.stl")
+cq.exporters.export(screw, "screw.step")
+
+print("Exported: screw.stl and screw.step")
