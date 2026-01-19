@@ -141,13 +141,15 @@ def generate_cad_program(state):
 
     else:
         prompt_path = "prompts/cad_generation.md"
+        if state.get("design_instructions"):
+            instructions = "\n".join(f"{i + 1}. {step}" for i, step in enumerate(state.get("design_instructions")))
+        else:
+            instructions = None
+
         variables = {
-            "docs_and_exs": state["cadquery_context"],
-            "dimensions": state["dimensions"],
-            "design_instructions": "\n".join(
-                f"{i + 1}. {step}"
-                for i, step in enumerate(state["design_instructions"])
-            ),
+            "docs_and_exs": state.get("cadquery_context"),
+            "dimensions": state.get("dimensions"),
+            "design_instructions": instructions
         }
 
     # Single chain creation and invocation

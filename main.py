@@ -9,13 +9,14 @@ example_prompts:
 
 from rich.traceback import install
 from dotenv import load_dotenv
-from graph.graph import build_graph
+from graph.graph import build_graph, BuildGraph
 from langchain_core.messages import HumanMessage
 
 install(show_locals=False)
 load_dotenv(".env")
 
-graph = build_graph()
+# graph = build_graph()
+graph = BuildGraph().base_layout()
 state = {"messages": []}
 
 while True:

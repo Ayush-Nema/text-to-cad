@@ -1,9 +1,10 @@
 import subprocess
 
-from graph.graph import build_graph
+from graph.graph import build_graph, BuildGraph
 from langchain_core.runnables.graph import MermaidDrawMethod
 
-graph = build_graph()
+# graph = build_graph()
+graph = BuildGraph().base_layout()
 
 # Generate the PNG image bytes
 img_bytes = graph.get_graph().draw_mermaid_png(draw_method=MermaidDrawMethod.API)

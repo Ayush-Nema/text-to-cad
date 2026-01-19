@@ -14,7 +14,7 @@ from langgraph.graph import StateGraph, END, START
 
 
 def build_graph():
-    workflow = StateGraph(CADState)
+    workflow = StateGraph(CADState)  # type: ignore
 
     workflow.add_node("extract_human_msg", extract_human_message)
     workflow.add_node("get_dimensions", get_dimensions)
@@ -29,7 +29,6 @@ def build_graph():
     # workflow.set_entry_point("get_dimensions")
     workflow.add_edge(START, "extract_human_msg")
     workflow.add_edge("extract_human_msg", "get_dimensions")
-
     workflow.add_edge("get_dimensions", "validate_dimensions")
 
     workflow.add_conditional_edges(
@@ -68,37 +67,42 @@ def build_graph():
 
 
 class BuildGraph:
-    def __init__(self, state):
-        self.workflow = StateGraph(state)
+    def __init__(self):
+        self.workflow = StateGraph(CADState)  # type: ignore
 
-        self.workflow.add_node("get_dimensions", get_dimensions)
-        self.workflow.add_node("validate_dimensions", validate_dimensions)
-        self.workflow.add_node("get_design_instructions", get_design_instructions)
-        self.workflow.add_node("refine", validate_program)
-
-        self.workflow.set_entry_point("get_dimensions")
-
-    def build_graph_1(self):
-        self.workflow.add_edge("get_dimensions", "validate_dimensions")
+    def _feedback_loop(self):
+        self.workflow.add_edge("generate_cad_program", "validate_program")
 
         self.workflow.add_conditional_edges(
-            "validate_dimensions",
-            lambda s: "ok" if s["validation_status"] == "valid" else "fix",
+            "validate_program",
+            lambda s: "ok" if s["is_code_valid"] else "feedback",
             {
-                "ok": "get_design_instructions",
-                "fix": "get_dimensions"
+                "ok": "exporter",
+                "feedback": "generate_cad_program"
             }
         )
+        self.workflow.add_edge("exporter", "design_critique")
 
         self.workflow.add_conditional_edges(
-            "get_design_instructions",
-            lambda s: "refine" if "refine" in s["messages"][-1].content.lower() else "end",
+            "design_critique",
+            lambda s: "ok" if s["is_review_passed"] == "valid" else "feedback",
             {
-                "refine": "refine",
-                "end": END
+                "ok": END,
+                "feedback": "generate_cad_program"
             }
         )
-
-        self.workflow.add_edge("refine", "get_design_instructions")
 
         return self.workflow.compile()
+
+    def base_layout(self):
+        self.workflow.add_node("extract_human_msg", extract_human_message)
+        self.workflow.add_node("get_dimensions", get_dimensions)
+        self.workflow.add_node("generate_cad_program", generate_cad_program)
+        self.workflow.add_node("validate_program", validate_program)
+        self.workflow.add_node("exporter", exporter)
+        self.workflow.add_node("design_critique", design_critique)
+
+        self.workflow.set_entry_point("extract_human_msg")
+        self.workflow.add_edge("extract_human_msg", "get_dimensions")
+        self.workflow.add_edge("get_dimensions", "generate_cad_program")
+        return self._feedback_loop()
