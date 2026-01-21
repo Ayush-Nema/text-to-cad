@@ -5,6 +5,8 @@
 example_prompts:
 1. screw 24mm long with circular top and threads
 2. a car wheel with 250mm diameter and 5 spokes. There should a hole in the center with 15mm diameter
+3. rectangular slab of 12mm x 15mm x 20mm
+
 """
 
 from rich.traceback import install
@@ -15,8 +17,8 @@ from langchain_core.messages import HumanMessage
 install(show_locals=False)
 load_dotenv(".env")
 
-# graph = build_graph()
-graph = BuildGraph().base_layout()
+graph = build_graph()
+# graph = BuildGraph().base_layout()
 state = {"messages": []}
 
 while True:

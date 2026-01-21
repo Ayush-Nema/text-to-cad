@@ -50,8 +50,6 @@ def get_dimensions(state):
     # parse JSON output
     args = parse_json(response)
 
-    print("Finished processing `get_dimensions` node")
-
     return {
         "dimensions": args,  # new field in state
         "messages": [AIMessage(content=str(args))]  # reducer will append this automatically
@@ -87,7 +85,7 @@ def get_design_instructions(state):
 
     chain = prompt | llm
     design_obj: DesignInstructions = chain.invoke({"messages": state["messages"]})
-    print("DESIGN INSTRUCTIONS:", design_obj.design_instructions)
+    # print("DESIGN INSTRUCTIONS:", design_obj.design_instructions)
 
     return {
         "design_instructions": design_obj.design_instructions,
@@ -132,11 +130,10 @@ def generate_cad_program(state):
         }
 
     elif state.get('is_review_passed', None) is False:  # represents flow for Review failure
-        prompt_path = "prompts/cad_review_fix.md"
+        prompt_path = "prompts/cad_review_feedback.md"
         variables = {
-            "previous_code": state["generated_code"],
-            "review_feedback": state["review_feedback"],
-            # todo: ... other variables for this case
+            "previous_code": state["cadquery_program"],
+            "review_feedback": state["design_critique"],
         }
 
     else:
@@ -147,7 +144,7 @@ def generate_cad_program(state):
             instructions = None
 
         variables = {
-            "docs_and_exs": state.get("cadquery_context"),
+            "docs_and_exs": None,  # state.get("cadquery_context"),
             "dimensions": state.get("dimensions"),
             "design_instructions": instructions
         }
@@ -159,6 +156,7 @@ def generate_cad_program(state):
     response = chain.invoke(variables)
 
     generated_prog: str = strip_markdown_code_fences(response.content)
+    print(f"GENERATED CODE:\n {generated_prog}", end="==============\n")
     # print(f"Exiting generated_cad_program node with this code: \n{generated_prog}", end="\n==============\n")
 
     return {
@@ -344,33 +342,43 @@ def design_critique(state):
     # Load system prompt from markdown
     prompt_text = load_and_format_prompt("prompts/cad_design_critique.md")
 
-    object_img_base64_str = generate_stl_screenshots("output/object.stl", return_base64=True, dpi=80,
-                                                     output_filepath="output/view.png")
+    # Generate STL screenshot as base64
+    base64_image = generate_stl_screenshots(
+        "output/object.stl",
+        output_filepath="output/view.png",
+        dpi=40,
+        return_base64=True
+    )
 
-    # Include all inputs inside the system prompt
-    full_prompt = f"""
-{prompt_text}
-
----
-
-## INPUTS FOR REVIEW
-
-### USER REQUEST
-{state['human_messages']}
-
-### IMAGES (base64, may be empty)
-{object_img_base64_str}
-"""
-
-    # System-only message
-    prompt = ChatPromptTemplate.from_messages([("system", full_prompt)])
+    # Build system prompt with image
+    messages = [
+        {
+            "role": "system",
+            "content": f"{prompt_text}\n\n---\n\n## USER REQUEST\n{state['human_messages']}"
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "Here is the generated CAD model screenshot showing ISO, FRONT, TOP, and SIDE views:"
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/png;base64,{base64_image}",
+                        "detail": "high"  # low, high, auto
+                    }
+                }
+            ]
+        }
+    ]
 
     # Wrap LLM to produce structured output
     structured_llm = llm.with_structured_output(DesignCritiqueResult)
 
-    # Invoke LLM and get structured result
-    critique_result = structured_llm.invoke(prompt.format_messages())
+    # Invoke LLM with messages directly
+    critique_result = structured_llm.invoke(messages)
     print(critique_result)
 
-    # Update state
     return {"design_critique": critique_result, "is_review_passed": critique_result.status}
