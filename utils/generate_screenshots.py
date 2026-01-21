@@ -117,9 +117,9 @@ def generate_stl_screenshots(
     return result
 
 
-if __name__ == "__main__":
-    # Save to file
-    generate_stl_screenshots("cylinder.stl", output_filepath="stl_views.png", dpi=80)
-
-    # Or get base64
-    b64 = generate_stl_screenshots("cylinder.stl", return_base64=True, dpi=80)
+# if __name__ == "__main__":
+#     # Save to file
+#     generate_stl_screenshots("cylinder.stl", output_filepath="stl_views.png", dpi=80)
+#
+#     # Or get base64
+#     b64 = generate_stl_screenshots("cylinder.stl", return_base64=True, dpi=80)

@@ -4,7 +4,7 @@ You are a **CAD Design Review Agent** evaluating a generated **CadQuery (Python)
 
 You will be given:
 - User request (intent)
-- base64-encoded images of STL or rendered geometry
+- image of STL or rendered geometry from different angles
 
 Your task is to determine whether the design is acceptable.
 
