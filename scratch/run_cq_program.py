@@ -1,14 +1,44 @@
 """
 CadQuery Code Visualizer
 Paste your CadQuery code and visualize the result in 3D.
+
+
+Option 1: Interactive mode
+$ python visualize_cq.py
+```
+Then paste your code and type `END` when done:
+```
+import cadquery as cq
+
+model = cq.Workplane("XY").box(10, 20, 5)
+END
+
+
+Option 2: Direct function call
+```
+from visualize_cq import visualize_cadquery_code
+
+code = '''
+import cadquery as cq
+
+model = (
+    cq.Workplane("XY")
+    .box(50, 50, 10)
+    .edges("|Z")
+    .fillet(2)
+)
+'''
+
+visualize_cadquery_code(code, rotate=False)
+```
 """
+
+import os
+import tempfile
 
 import cadquery as cq
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
-import tempfile
-import os
 
 
 def visualize_cadquery_code(code: str, rotate: bool = True):
