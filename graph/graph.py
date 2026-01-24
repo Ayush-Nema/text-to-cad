@@ -1,108 +1,41 @@
+from __future__ import annotations
+
 from graph.nodes import (
-    extract_human_message,
-    get_dimensions,
-    validate_dimensions,
-    get_design_instructions,
-    retrieve_context,
-    generate_cad_program,
-    validate_program,
-    exporter,
-    design_critique
+    GraphState,
+    make_generate_partspec_node,
+    make_compile_export_node,
 )
-from graph.state import CADState
-from langgraph.graph import StateGraph, END, START
+from langchain_core.language_models.chat_models import BaseChatModel
+from langgraph.graph import StateGraph, END
 
 
-def build_graph():
-    workflow = StateGraph(CADState)  # type: ignore
+def build_graph(
+        llm: BaseChatModel,
+        out_dir: str,
+        export_step: bool = True,
+        export_stl: bool = True,
+):
+    """
+    Build and compile the LangGraph pipeline:
 
-    workflow.add_node("extract_human_msg", extract_human_message)
-    workflow.add_node("get_dimensions", get_dimensions)
-    workflow.add_node("validate_dimensions", validate_dimensions)
-    workflow.add_node("get_design_instructions", get_design_instructions)
-    workflow.add_node("retrieve_context", retrieve_context)
-    workflow.add_node("generate_cad_program", generate_cad_program)
-    workflow.add_node("validate_program", validate_program)
-    workflow.add_node("exporter", exporter)
-    workflow.add_node("design_critique", design_critique)
+      Human prompt -> PartSpec (structured) -> compile_and_export -> paths
 
-    # workflow.set_entry_point("get_dimensions")
-    workflow.add_edge(START, "extract_human_msg")
-    workflow.add_edge("extract_human_msg", "get_dimensions")
-    workflow.add_edge("get_dimensions", "validate_dimensions")
-
-    workflow.add_conditional_edges(
-        "validate_dimensions",
-        lambda s: "ok" if s["validation_status"] == "valid" else "fix",
-        {
-            "ok": "get_design_instructions",
-            "fix": "get_dimensions"
-        }
+    Returns:
+      compiled graph callable
+    """
+    spec_node = make_generate_partspec_node(llm)
+    compile_node = make_compile_export_node(
+        out_dir=out_dir,
+        export_step=export_step,
+        export_stl=export_stl,
     )
 
-    workflow.add_edge("get_design_instructions", "retrieve_context")
-    workflow.add_edge("retrieve_context", "generate_cad_program")
-    workflow.add_edge("generate_cad_program", "validate_program")
+    builder = StateGraph(GraphState)
+    builder.add_node("spec", spec_node)
+    builder.add_node("compile", compile_node)
 
-    workflow.add_conditional_edges(
-        "validate_program",
-        lambda s: "ok" if s["is_code_valid"] else "feedback",
-        {
-            "ok": "exporter",
-            "feedback": "generate_cad_program"
-        }
-    )
-    workflow.add_edge("exporter", "design_critique")
+    builder.set_entry_point("spec")
+    builder.add_edge("spec", "compile")
+    builder.add_edge("compile", END)
 
-    workflow.add_conditional_edges(
-        "design_critique",
-        lambda s: "ok" if s["is_review_passed"] == "valid" else "feedback",
-        {
-            "ok": END,
-            "feedback": "generate_cad_program"
-        }
-    )
-
-    return workflow.compile()
-
-
-class BuildGraph:
-    def __init__(self):
-        self.workflow = StateGraph(CADState)  # type: ignore
-
-    def _feedback_loop(self):
-        self.workflow.add_edge("generate_cad_program", "validate_program")
-
-        self.workflow.add_conditional_edges(
-            "validate_program",
-            lambda s: "ok" if s["is_code_valid"] else "feedback",
-            {
-                "ok": "exporter",
-                "feedback": "generate_cad_program"
-            }
-        )
-        self.workflow.add_edge("exporter", "design_critique")
-
-        self.workflow.add_conditional_edges(
-            "design_critique",
-            lambda s: "ok" if s["is_review_passed"] == "valid" else "feedback",
-            {
-                "ok": END,
-                "feedback": "generate_cad_program"
-            }
-        )
-
-        return self.workflow.compile()
-
-    def base_layout(self):
-        self.workflow.add_node("extract_human_msg", extract_human_message)
-        self.workflow.add_node("get_dimensions", get_dimensions)
-        self.workflow.add_node("generate_cad_program", generate_cad_program)
-        self.workflow.add_node("validate_program", validate_program)
-        self.workflow.add_node("exporter", exporter)
-        self.workflow.add_node("design_critique", design_critique)
-
-        self.workflow.set_entry_point("extract_human_msg")
-        self.workflow.add_edge("extract_human_msg", "get_dimensions")
-        self.workflow.add_edge("get_dimensions", "generate_cad_program")
-        return self._feedback_loop()
+    return builder.compile()

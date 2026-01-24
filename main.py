@@ -1,41 +1,56 @@
-"""
-- python -m graph.visualize
-- python -m main
+from __future__ import annotations
 
-example_prompts:
-1. screw 24mm long with circular top and threads
-2. a car wheel with 250mm diameter and 5 spokes. There should a hole in the center with 15mm diameter
-3. rectangular slab of 12mm x 15mm x 20mm
-
-"""
-
-from rich.traceback import install
+import json
 from dotenv import load_dotenv
-from graph.graph import build_graph, BuildGraph
 from langchain_core.messages import HumanMessage
+from langchain_openai import ChatOpenAI
 
-install(show_locals=False)
-load_dotenv(".env")
+from graph.graph import build_graph
 
-graph = build_graph()
-# graph = BuildGraph().base_layout()
-state = {"messages": []}
+load_dotenv()
 
-while True:
-    user = input("User: ")
-    if user == "exit":
-        break
 
-    state["messages"] += [HumanMessage(content=user)]
-    result = graph.invoke(state, {"recursion_limit": 20})
+def main() -> None:
+    # ---- Minimal config ----------------------
+    model = "gpt-4.1-mini"
+    out_dir = "output"
+    export_step = True
+    export_stl = True
+    print_spec = True
+    # ------------------------------------------
 
-    # print(result.keys())
-    print("▶︎ Design dimensions: \n", result.get("dimensions"), end="\n-----------")
-    print("▶︎ Design instructions: \n", result.get("design_instructions"), end="\n-----------")
-    print("▶︎ Program: \n", result.get("cadquery_program"), end="\n-----------")
-    print("▶︎ Code validation status: \n", result.get("code_insights")['is_code_valid'], end="\n-----------")
-    print("▶︎ Design critique: \n", result.get("design_critique"), end="\n-----------")
-    print("\n")
+    prompt = input("Enter CAD prompt: ").strip()
+    if not prompt:
+        print("No prompt provided. Exiting.")
+        return
 
-    # state updates propagate automatically
-    state = result
+    llm = ChatOpenAI(model=model)
+    graph = build_graph(
+        llm=llm,
+        out_dir=out_dir,
+        export_step=export_step,
+        export_stl=export_stl,
+    )
+
+    state = {"messages": [HumanMessage(content=prompt)]}
+    result = graph.invoke(state)
+
+    if print_spec and "parts_spec" in result:
+        print("\n=== PartSpec ===")
+        print(json.dumps(result["parts_spec"], indent=2))
+
+    if result.get("needs_clarification"):
+        print("\n=== Clarifications Needed ===")
+        for q in result.get("clarification_questions", []):
+            print(f"- {q.get('question')}")
+            opts = q.get("options") or []
+            if opts:
+                print("  options:", opts)
+
+    print("\n=== Output ===")
+    print("STEP:", result.get("step_path"))
+    print("STL :", result.get("stl_path"))
+
+
+if __name__ == "__main__":
+    main()
