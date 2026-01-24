@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from graph.nodes import (
+from graph.curate_nodes import (
     GraphState,
     make_generate_partspec_node,
     make_compile_export_node,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import List, TypedDict, Dict, Any
 
 from langchain_core.messages import BaseMessage
-from partspec import PartSpec
+from graph.nodes.partspec import PartSpec
 
 
 class GraphState(TypedDict, total=False):

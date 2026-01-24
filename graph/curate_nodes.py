@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 from typing import List
 
-from compiler import compile_and_export
+from graph.nodes.compiler import compile_and_export
 from graph.state import GraphState
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
-from partspec import PartSpec
+from graph.nodes.partspec import PartSpec
 from prompts.partspec_prompt import PARTSPEC_SYSTEM_PROMPT
 
 
