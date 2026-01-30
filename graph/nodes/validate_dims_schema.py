@@ -4,21 +4,58 @@ import math
 from typing import Any, Dict, List, Tuple
 
 
-def _bbox_from_base(spec: Dict[str, Any]) -> Tuple[float, float, float]:
-    base = spec.get("base", {})
+def _bbox_from_base(spec_: Dict[str, Any]) -> Tuple[float, float, float]:
+    base = spec_.get("base", {}) or {}
     btype = base.get("type")
 
     if btype == "box":
         size = base.get("size", {}) or {}
-        x, y, z = float(size.get("x", 0)), float(size.get("y", 0)), float(size.get("z", 0))
+        x = float(size.get("x", 0))
+        y = float(size.get("y", 0))
+        z = float(size.get("z", 0))
         return x, y, z
 
     if btype == "cylinder":
-        r, h = float(base.get("radius", 0)), float(base.get("height", 0))
-        # bbox in XY is diameter
+        r = float(base.get("radius", 0))
+        h = float(base.get("height", 0))
         return 2 * r, 2 * r, h
 
+    if btype == "revolve_profile":
+        prof = base.get("profile", []) or []
+        if not prof:
+            return 0.0, 0.0, 0.0
+        rs = [float(p.get("r", 0.0)) for p in prof if isinstance(p, dict)]
+        zs = [float(p.get("z", 0.0)) for p in prof if isinstance(p, dict)]
+        if not rs or not zs:
+            return 0.0, 0.0, 0.0
+        rmax = max(rs)
+        zmin = min(zs)
+        zmax = max(zs)
+        return 2 * rmax, 2 * rmax, (zmax - zmin)
+
     return 0.0, 0.0, 0.0
+
+
+def _rim_outer_radius_from_base(base: Dict[str, Any]) -> float:
+    """
+    Best-effort outer radius in spec units (before scaling).
+    - revolve_profile: max r from profile
+    - cylinder: radius
+    - box: half of max(x,y) (proxy upper bound)
+    """
+    btype = base.get("type")
+    if btype == "revolve_profile":
+        prof = base.get("profile", []) or []
+        rs = [float(p.get("r", 0.0)) for p in prof if isinstance(p, dict)]
+        return max(rs) if rs else 0.0
+    if btype == "cylinder":
+        return float(base.get("radius", 0.0))
+    if btype == "box":
+        size = base.get("size", {}) or {}
+        x = float(size.get("x", 0.0))
+        y = float(size.get("y", 0.0))
+        return max(x, y) / 2.0
+    return 0.0
 
 
 def _add_err(errs: List[Dict[str, Any]], path: str, msg: str, severity: str = "error") -> None:
@@ -41,10 +78,12 @@ def make_validate_partspec_node():
         errs: List[Dict[str, Any]] = []
 
         # ---- Base validation ----
-        base = spec.get("base", {})
+        base = spec.get("base", {}) or {}
         btype = base.get("type")
-        if btype not in ("box", "cylinder"):
-            _add_err(errs, "base.type", f"Unsupported base.type='{btype}'. Must be 'box' or 'cylinder'.")
+
+        if btype not in ("box", "cylinder", "revolve_profile"):
+            _add_err(errs, "base.type",
+                     f"Unsupported base.type='{btype}'. Must be 'box', 'cylinder', or 'revolve_profile'.")
         else:
             if btype == "box":
                 size = base.get("size", {}) or {}
@@ -52,40 +91,87 @@ def make_validate_partspec_node():
                     v = float(size.get(k, 0))
                     if v <= 0:
                         _add_err(errs, f"base.size.{k}", f"Box dimension {k} must be > 0 (got {v}).")
-                # forbid cylinder fields
+                # optional warnings
                 if float(base.get("radius", 0)) != 0 or float(base.get("height", 0)) != 0:
                     _add_err(errs, "base.radius|base.height",
                              "For box base, radius and height should be 0.", severity="warning")
+                if base.get("profile"):
+                    _add_err(errs, "base.profile",
+                             "For box base, profile should be empty.", severity="warning")
 
-            if btype == "cylinder":
+            elif btype == "cylinder":
                 r = float(base.get("radius", 0))
                 h = float(base.get("height", 0))
                 if r <= 0:
                     _add_err(errs, "base.radius", f"Cylinder radius must be > 0 (got {r}).")
                 if h <= 0:
                     _add_err(errs, "base.height", f"Cylinder height must be > 0 (got {h}).")
-                # forbid box fields
                 size = base.get("size", {}) or {}
                 if any(float(size.get(k, 0)) != 0 for k in ("x", "y", "z")):
                     _add_err(errs, "base.size",
                              "For cylinder base, size.x/y/z should be 0.", severity="warning")
+                if base.get("profile"):
+                    _add_err(errs, "base.profile",
+                             "For cylinder base, profile should be empty.", severity="warning")
 
-        # Bounding box (in same units as spec; compiler later scales)
+            elif btype == "revolve_profile":
+                prof = base.get("profile", None)
+                if not isinstance(prof, list):
+                    _add_err(errs, "base.profile", "revolve_profile: profile must be a list of {r,z} points.")
+                    prof = []
+                if len(prof) < 2:
+                    _add_err(errs, "base.profile",
+                             f"revolve_profile: profile must have >= 2 points (got {len(prof)}).")
+
+                rs: List[float] = []
+                zs: List[float] = []
+                for i, p in enumerate(prof):
+                    if not isinstance(p, dict):
+                        _add_err(errs, f"base.profile[{i}]",
+                                 "revolve_profile: each profile point must be an object {r,z}.")
+                        continue
+                    r = float(p.get("r", 0.0))
+                    z = float(p.get("z", 0.0))
+                    if r < 0:
+                        _add_err(errs, f"base.profile[{i}].r",
+                                 f"revolve_profile: r must be >= 0 (got {r}).")
+                    rs.append(r)
+                    zs.append(z)
+
+                if rs and max(rs) <= 0:
+                    _add_err(errs, "base.profile", "revolve_profile: profile must include a point with r > 0.")
+                if zs:
+                    zmin, zmax = min(zs), max(zs)
+                    if (zmax - zmin) <= 0:
+                        _add_err(errs, "base.profile", "revolve_profile: profile must span nonzero z extent.")
+
+                # optional warnings about other fields being unused
+                if float(base.get("radius", 0)) != 0 or float(base.get("height", 0)) != 0:
+                    _add_err(errs, "base.radius|base.height",
+                             "For revolve_profile base, radius and height should be 0.", severity="warning")
+                size = base.get("size", {}) or {}
+                if any(float(size.get(k, 0)) != 0 for k in ("x", "y", "z")):
+                    _add_err(errs, "base.size",
+                             "For revolve_profile base, size.x/y/z should be 0.", severity="warning")
+
+        # Bounding box for placement/depth checks
         bx, by, bz = _bbox_from_base(spec)
         if bx <= 0 or by <= 0 or bz <= 0:
-            _add_err(errs, "base", "Base bounding box invalid; cannot validate feature placement.")
+            _add_err(errs, "base", "Base bounding box invalid; cannot validate feature placement.", severity="warning")
+
+        rim_rmax = _rim_outer_radius_from_base(base)
 
         # ---- Feature validation ----
         features = spec.get("features", []) or []
         for i, f in enumerate(features):
-            ftype = f.get("type")
-            fid = f.get("id", "")
-            prefix = f"features[{i}]" + (f"(id={fid})" if fid else "")
-            path_base = f"features[{i}]"
-
-            if not ftype:
-                _add_err(errs, f"{path_base}.type", f"{prefix}: missing type")
+            if not isinstance(f, dict) or "type" not in f:
+                _add_err(errs, f"features[{i}]", "Feature missing 'type' or not an object.")
                 continue
+
+            ftype = f["type"]
+            path_base = f"features[{i}]"
+            fid = f.get("id", "")
+            prefix = path_base + (f"(id={fid})" if fid else "")
 
             # Common fields
             on_face = f.get("on_face", "+Z")
@@ -154,7 +240,7 @@ def make_validate_partspec_node():
                 return []
 
             # Dimension checks by feature type
-            if ftype in ("through_hole", "blind_hole", "counterbore", "countersink"):
+            if ftype in ("through_hole", "blind_hole", "counterbore", "countersink", "cut_annular_sector"):
                 d = float(f.get("diameter", 0))
                 if d <= 0:
                     _add_err(errs, f"{path_base}.diameter", f"{prefix}: diameter must be > 0")
@@ -164,7 +250,7 @@ def make_validate_partspec_node():
                     if depth <= 0:
                         _add_err(errs, f"{path_base}.depth", f"{prefix}: blind_hole depth must be > 0")
                     # if drilling from top/bottom of box/cyl, depth should not exceed thickness/height
-                    if bz > 0 and depth > bz:
+                    if 0 < bz < depth:
                         _add_err(errs, f"{path_base}.depth",
                                  f"{prefix}: depth ({depth}) exceeds part thickness/height ({bz})")
 
@@ -175,7 +261,7 @@ def make_validate_partspec_node():
                         _add_err(errs, f"{path_base}.cbore_diameter", f"{prefix}: cbore_diameter must be > diameter")
                     if cb_depth <= 0:
                         _add_err(errs, f"{path_base}.cbore_depth", f"{prefix}: cbore_depth must be > 0")
-                    if bz > 0 and cb_depth > bz:
+                    if 0 < bz < cb_depth:
                         _add_err(errs, f"{path_base}.cbore_depth", f"{prefix}: cbore_depth exceeds thickness/height")
 
                 if ftype == "countersink":
@@ -185,6 +271,41 @@ def make_validate_partspec_node():
                         _add_err(errs, f"{path_base}.csk_diameter", f"{prefix}: csk_diameter must be > diameter")
                     if not (0 < ang < 180):
                         _add_err(errs, f"{path_base}.csk_angle_deg", f"{prefix}: angle must be between 0 and 180")
+
+                if ftype == "cut_annular_sector":
+                    r_in = float(f.get("r_inner", 0.0))
+                    r_out = float(f.get("r_outer", 0.0))
+                    ang = float(f.get("angle_deg", 0.0))
+                    depth = float(f.get("depth", 0.0))  # 0 => through-all
+                    rot = float(f.get("rotate_deg", 0.0))
+
+                    if r_in < 0:
+                        _add_err(errs, f"{path_base}.r_inner", f"{prefix}: r_inner must be >= 0 (got {r_in}).")
+                    if r_out <= 0:
+                        _add_err(errs, f"{path_base}.r_outer", f"{prefix}: r_outer must be > 0 (got {r_out}).")
+                    if r_out <= r_in:
+                        _add_err(errs, f"{path_base}.r_outer",
+                                 f"{prefix}: require r_outer > r_inner (got {r_out} <= {r_in}).")
+
+                    if not (0.0 < ang < 360.0):
+                        _add_err(errs, f"{path_base}.angle_deg",
+                                 f"{prefix}: angle_deg must be between 0 and 360 (got {ang}).")
+
+                    if depth < 0:
+                        _add_err(errs, f"{path_base}.depth", f"{prefix}: depth must be >= 0 (got {depth}).")
+                    if depth != 0 and 0 < bz < depth:
+                        _add_err(errs, f"{path_base}.depth",
+                                 f"{prefix}: depth ({depth}) exceeds part thickness/height ({bz}).")
+
+                    # If we can estimate rim outer radius, ensure r_outer doesn't exceed it
+                    if 0 < rim_rmax < r_out:
+                        _add_err(errs, f"{path_base}.r_outer",
+                                 f"{prefix}: r_outer ({r_out}) exceeds rim outer radius ({rim_rmax}).")
+
+                    # Optional sanity: rotate_deg can be any number; warn on extreme magnitude
+                    if abs(rot) > 1e6:
+                        _add_err(errs, f"{path_base}.rotate_deg",
+                                 f"{prefix}: rotate_deg unusually large ({rot}).", severity="warning")
 
                 # Placement sanity: points should lie within face bounds (box-only robust check)
                 pts = points_from_pattern()
@@ -202,7 +323,7 @@ def make_validate_partspec_node():
                     _add_err(errs, f"{path_base}.size", f"{prefix}: pocket size x/y must be > 0")
                 if depth <= 0:
                     _add_err(errs, f"{path_base}.depth", f"{prefix}: pocket depth must be > 0")
-                if bz > 0 and depth >= bz:
+                if 0 < bz <= depth:
                     _add_err(errs, f"{path_base}.depth", f"{prefix}: pocket depth must be < thickness/height ({bz})")
                 if cr < 0:
                     _add_err(errs, f"{path_base}.corner_radius", f"{prefix}: corner_radius must be >= 0")

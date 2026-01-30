@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 from typing import Any, List, Literal, Union
-from pydantic import BaseModel, Field, ConfigDict
+
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 # ---- Enums / Literals ----
 Face = Literal["+Z", "-Z", "+X", "-X", "+Y", "-Y"]
 EdgeSet = Literal["all", "vertical", "top", "bottom"]
 
-BaseType = Literal["box", "cylinder"]
-FeatureType = Literal["through_hole", "blind_hole", "fillet", "chamfer", "pocket_rect", "counterbore", "countersink"]
+BaseType = Literal["box", "cylinder", "revolve_profile"]
+FeatureType = Literal[
+    "through_hole", "blind_hole", "fillet", "chamfer",
+    "pocket_rect", "counterbore", "countersink",
+    "cut_annular_sector"
+]
 
 
 # ---- Shared structs ----
@@ -42,6 +47,12 @@ class ClarificationNeeded(BaseModel):
     blocking: bool = True
 
 
+class ProfilePoint(BaseModel):
+    # 2D profile in the R-Z plane (radius, z)
+    r: float
+    z: float
+
+
 # ---- Base ----
 class BaseSpec(BaseModel):
     type: BaseType
@@ -50,6 +61,16 @@ class BaseSpec(BaseModel):
     # For cylinder:
     radius: float = 0.0
     height: float = 0.0
+    # revolve_profile
+    profile: List[ProfilePoint] = Field(default_factory=list)
+
+    @field_validator("profile", mode="before")
+    @classmethod
+    def _coerce_profile_none_to_list(cls, v):
+        # If model outputs null, treat it as "no profile points"
+        if v is None:
+            return []
+        return v
 
 
 # ---- Patterns ----
@@ -121,6 +142,17 @@ class Countersink(FeatureBase):
     depth: float = 0.0  # optional
 
 
+class CutAnnularSector(FeatureBase):
+    type: Literal["cut_annular_sector"] = "cut_annular_sector"
+    # annulus window in polar terms, extruded through thickness
+    r_inner: float
+    r_outer: float
+    angle_deg: float
+    depth: float = 0.0  # 0 => through-all (recommended)
+    # optional rotation offset for where the sector starts
+    rotate_deg: float = 0.0
+
+
 class Fillet(BaseModel):
     id: str = ""
     type: Literal["fillet"] = "fillet"
@@ -153,6 +185,7 @@ FeatureSpec = Union[
     Fillet,
     Chamfer,
     PocketRect,
+    CutAnnularSector
 ]
 
 

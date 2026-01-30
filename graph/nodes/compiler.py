@@ -127,7 +127,35 @@ def _pattern_points(
 
 def _make_base(base: Dict[str, Any], scale: float) -> Tuple[cq.Workplane, Tuple[float, float, float]]:
     btype = base.get("type")
-    require(btype in ("box", "cylinder"), f"Unsupported base type: {btype}")
+    require(btype in ("box", "cylinder", "revolve_profile"), f"Unsupported base type: {btype}")
+
+    if btype == "revolve_profile":
+        prof = base.get("profile", [])
+        require(isinstance(prof, list) and len(prof) >= 2, "revolve_profile: profile must have >=2 points")
+
+        pts = []
+        for i, p in enumerate(prof):
+            r = float(p.get("r", 0.0)) * scale
+            z = float(p.get("z", 0.0)) * scale
+            require(r >= 0, f"revolve_profile: profile[{i}].r must be >= 0")
+            pts.append((r, z))
+
+        # Must include r=0 at ends for a closed solid, or we force closure by adding it.
+        if pts[0][0] != 0.0:
+            pts = [(0.0, pts[0][1])] + pts
+        if pts[-1][0] != 0.0:
+            pts = pts + [(0.0, pts[-1][1])]
+
+        # Revolve around Z-axis from an RZ sketch on XZ plane
+        wp = cq.Workplane("XZ").polyline(pts).close().revolve(360, (0, 0, 0), (0, 0, 1))
+
+        # bbox rough estimate
+        rmax = max(r for r, _ in pts)
+        zmin = min(z for _, z in pts)
+        zmax = max(z for _, z in pts)
+        bbox = (2 * rmax, 2 * rmax, (zmax - zmin))
+
+        return wp, bbox
 
     if btype == "box":
         size = base.get("size", {})
@@ -296,6 +324,8 @@ def compile_partspec(partspec: Dict[str, Any]) -> cq.Workplane:
                 wp = _apply_fillet(wp, feat, scale)
             elif ftype == "chamfer":
                 wp = _apply_chamfer(wp, feat, scale)
+            elif ftype == "cut_annular_sector":
+                wp = _apply_cut_annular_sector(wp, feat, base_bbox, scale)
             else:
                 raise CADCompileError(f"Unsupported feature type: {ftype}")
         except Exception as e:
@@ -351,3 +381,70 @@ def compile_and_export(
         stl_path = str(stl_file)
 
     return {"step_path": step_path, "stl_path": stl_path}
+
+
+def _apply_cut_annular_sector(
+        wp: cq.Workplane,
+        feat: Dict[str, Any],
+        base_bbox: Tuple[float, float, float],
+        scale: float,
+) -> cq.Workplane:
+    r_in = float(feat.get("r_inner", 0.0)) * scale
+    r_out = float(feat.get("r_outer", 0.0)) * scale
+    ang = float(feat.get("angle_deg", 0.0))
+    rot = float(feat.get("rotate_deg", 0.0))
+
+    require(r_in >= 0 and r_out > 0 and r_out > r_in, "cut_annular_sector: require 0 <= r_inner < r_outer")
+    require(0 < ang < 360, "cut_annular_sector: angle_deg must be between 0 and 360")
+
+    depth = float(feat.get("depth", 0.0)) * scale
+    through = (depth == 0.0)
+
+    # Pattern points: use your existing pattern generator to place repeated sectors.
+    # We'll interpret pattern.circular(count=N) by rotating each sector around Z.
+    pattern = feat.get("pattern", {"type": "single"})
+    ptype = pattern.get("type", "single")
+
+    if ptype == "single":
+        angles = [rot]
+    elif ptype == "circular":
+        n = int(pattern.get("count", 0))
+        start = float(pattern.get("start_angle_deg", 0.0))
+        require(n >= 1, "cut_annular_sector: circular.count must be >=1")
+        angles = [rot + start + 360.0 * i / n for i in range(n)]
+    else:
+        raise CADCompileError(f"cut_annular_sector: only supports pattern.type 'single' or 'circular' (got {ptype})")
+
+    # Build a "sector sketch" on +Z face (XY plane), then cut.
+    # Sector is a closed wire bounded by two arcs and two radial edges.
+    work = wp.faces(">Z").workplane(centerOption="CenterOfMass")
+
+    for a0 in angles:
+        a1 = a0 + ang
+
+        # Convert degrees to points
+        def pol(r, deg):
+            rad = math.radians(deg)
+            return (r * math.cos(rad), r * math.sin(rad))
+
+        p0 = pol(r_out, a0)
+        p1 = pol(r_out, a1)
+        p2 = pol(r_in, a1)
+        p3 = pol(r_in, a0)
+
+        # Outer arc (r_out) then inner arc (r_in) in reverse
+        wire = (
+            cq.Workplane("XY")
+            .moveTo(*p0)
+            .threePointArc(pol(r_out, (a0 + a1) / 2.0), *p1)
+            .lineTo(*p2)
+            .threePointArc(pol(r_in, (a0 + a1) / 2.0), *p3)
+            .close()
+        )
+
+        if through:
+            wp = work.add(wire).cutThruAll()
+        else:
+            wp = work.add(wire).cutBlind(depth)
+
+    return wp

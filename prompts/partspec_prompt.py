@@ -43,21 +43,47 @@ SUPPORTED SCHEMA (must match exactly; include all top-level keys):
   "units": "mm",
   "part_name": "string",
   "base": {
-    "type": "box | cylinder",
+    "type": "box | cylinder | revolve_profile",
+
+    // Used when type == "box"
     "size": { "x": 0, "y": 0, "z": 0 },
+
+    // Used when type == "cylinder"
     "radius": 0,
-    "height": 0
+    "height": 0,
+
+    // Used when type == "revolve_profile"
+    "profile": [
+      { "r": 0, "z": 0 }
+    ]
   },
   "features": [
     {
-      "type": "through_hole | blind_hole | fillet | chamfer",
+      "type": "through_hole | blind_hole | fillet | chamfer | cut_annular_sector",
+
+      // Used for hole-like features
       "on_face": "+Z | -Z | +X | -X | +Y | -Y",
       "position": { "x": 0, "y": 0 },
       "diameter": 0,
       "depth": 0,
+      "distance_from_edges": { "left": 0, "right": 0, "front": 0, "back": 0 },
+
+      // Used for fillet / chamfer
       "edges": "all | vertical | top | bottom",
       "radius": 0,
-      "distance_from_edges": { "left": 0, "right": 0, "front": 0, "back": 0 }
+
+      // Used only when type == "cut_annular_sector"
+      "r_inner": 0,
+      "r_outer": 0,
+      "angle_deg": 0,
+      "rotate_deg": 0,
+
+      // Optional repetition for any feature
+      "pattern": {
+        "type": "single | circular",
+        "count": 0,
+        "start_angle_deg": 0
+      }
     }
   ],
   "defaults_applied": [
