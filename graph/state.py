@@ -14,6 +14,13 @@ class GraphState(TypedDict, total=False):
     parts_spec_obj: PartSpec
     parts_spec_json: str
 
+    # output of validation node
+    is_valid: bool
+    validation_errors: List[Dict[str, Any]]
+
+    # output of repair loop control
+    repair_attempts: int
+
     # output of compile/export node
     step_path: str
     stl_path: str

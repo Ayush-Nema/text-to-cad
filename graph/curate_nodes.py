@@ -4,11 +4,11 @@ import json
 from typing import List
 
 from graph.nodes.compiler import compile_and_export
+from graph.nodes.partspec import PartSpec
 from graph.state import GraphState
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
-from graph.nodes.partspec import PartSpec
-from prompts.partspec_prompt import PARTSPEC_SYSTEM_PROMPT
+from prompts import partspec_prompt, partspec_repair_prompt
 
 
 def latest_human_text(messages: List[BaseMessage]) -> str:
@@ -33,7 +33,7 @@ def make_generate_partspec_node(llm: BaseChatModel):
 
         # Keep LLM input small & stable for determinism
         llm_messages = [
-            ("system", PARTSPEC_SYSTEM_PROMPT),
+            ("system", partspec_prompt.PARTSPEC_SYSTEM_PROMPT),
             ("human", user_request),
         ]
 
@@ -102,6 +102,65 @@ def make_compile_export_node(out_dir: str, export_step: bool = True, export_stl:
                 new_state["step_path"] = str(step_path)
             if stl_path is not None:
                 new_state["stl_path"] = str(stl_path)
+
+        return new_state
+
+    return _node
+
+
+def make_repair_partspec_node(llm):
+    """
+    Repairs PartSpec using validation errors + original user request.
+
+    Uses function calling method to avoid OpenAI structured-output schema constraints
+    (especially if your model includes Any/JSONValue types).
+    """
+    structured_llm = llm.with_structured_output(PartSpec, method="function_calling")
+
+    def _node(state):
+        msgs = state.get("messages", [])
+        user_request = latest_human_text(msgs)
+
+        spec = state.get("parts_spec")
+        errors = state.get("validation_errors", [])
+
+        if not spec:
+            raise ValueError("Missing state['parts_spec'] for repair.")
+        if not errors:
+            # Nothing to repair; no-op
+            return state
+
+        # Keep the input compact and deterministic
+        repair_input = {
+            "user_request": user_request,
+            "current_parts_spec": spec,
+            "validation_errors": errors,
+            "repair_rules": {
+                "minimize_changes": True,
+                "prefer_clarifications_over_guessing": True
+            }
+        }
+
+        llm_messages = [
+            ("system", partspec_repair_prompt.PARTSPEC_REPAIR_SYSTEM_PROMPT),
+            ("human", json.dumps(repair_input, sort_keys=True)),
+        ]
+
+        repaired: PartSpec = structured_llm.invoke(llm_messages)
+
+        repaired_dict = repaired.model_dump()
+        repaired_json = json.dumps(repaired_dict, sort_keys=True)
+
+        new_state = dict(state)
+        new_state["parts_spec_obj"] = repaired
+        new_state["parts_spec"] = repaired_dict
+        new_state["parts_spec_json"] = repaired_json
+
+        # increment loop counter
+        new_state["repair_attempts"] = int(state.get("repair_attempts", 0)) + 1
+
+        # Optional: append for trace visibility
+        new_state["messages"] = msgs + [AIMessage(content=repaired_json)]
 
         return new_state
 
