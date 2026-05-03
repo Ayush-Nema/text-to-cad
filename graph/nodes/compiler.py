@@ -141,10 +141,21 @@ def _make_base(base: Dict[str, Any], scale: float) -> Tuple[cq.Workplane, Tuple[
         if pts[-1][0] != 0.0:
             pts = pts + [(0.0, pts[-1][1])]
 
-        # Revolve around Z-axis from an RZ sketch on XZ plane
-        wp = cq.Workplane("XZ").polyline(pts).close().revolve(360, (0, 0, 0), (0, 0, 1))
+        # CadQuery's revolve degenerates to a flat shape when the wire lies in a
+        # plane containing the revolve axis (the canonical "RZ in the XZ plane,
+        # revolve around Z" recipe yields volume=0). The reliable recipe is to
+        # build the wire in XY (treating profile (r, z) as (x, y)), revolve
+        # around the Y axis, then rotate the result so the part's long axis is
+        # global Z — matching the box/cylinder convention.
+        wp = (
+            cq.Workplane("XY")
+            .polyline(pts)
+            .close()
+            .revolve(360, (0, 0, 0), (0, 1, 0))
+            .rotate((0, 0, 0), (1, 0, 0), 90)
+        )
 
-        # bbox rough estimate
+        # bbox in (X, Y, Z) after the +90deg-about-X rotation: long axis is Z.
         rmax = max(r for r, _ in pts)
         zmin = min(z for _, z in pts)
         zmax = max(z for _, z in pts)
@@ -412,34 +423,35 @@ def _apply_cut_annular_sector(
 
     # Build a "sector sketch" on +Z face (XY plane), then cut.
     # Sector is a closed wire bounded by two arcs and two radial edges.
-    work = wp.faces(">Z").workplane(centerOption="CenterOfMass")
+    # Drawing the sector on the *active* workplane (rather than constructing
+    # a separate Wire and `add(...)`-ing it) keeps the wire registered as
+    # pending, which is what `cutThruAll` / `cutBlind` need.
+
+    def pol(r: float, deg: float) -> Tuple[float, float]:
+        rad = math.radians(deg)
+        return (r * math.cos(rad), r * math.sin(rad))
 
     for a0 in angles:
         a1 = a0 + ang
-
-        # Convert degrees to points
-        def pol(r, deg):
-            rad = math.radians(deg)
-            return (r * math.cos(rad), r * math.sin(rad))
-
         p0 = pol(r_out, a0)
         p1 = pol(r_out, a1)
         p2 = pol(r_in, a1)
         p3 = pol(r_in, a0)
+        p_mid_outer = pol(r_out, (a0 + a1) / 2.0)
+        p_mid_inner = pol(r_in, (a0 + a1) / 2.0)
 
-        # Outer arc (r_out) then inner arc (r_in) in reverse
-        wire = (
-            cq.Workplane("XY")
+        sector_wp = (
+            wp.faces(">Z").workplane(centerOption="CenterOfMass")
             .moveTo(*p0)
-            .threePointArc(pol(r_out, (a0 + a1) / 2.0), *p1)
+            .threePointArc(p_mid_outer, p1)
             .lineTo(*p2)
-            .threePointArc(pol(r_in, (a0 + a1) / 2.0), *p3)
+            .threePointArc(p_mid_inner, p3)
             .close()
         )
 
         if through:
-            wp = work.add(wire).cutThruAll()
+            wp = sector_wp.cutThruAll()
         else:
-            wp = work.add(wire).cutBlind(depth)
+            wp = sector_wp.cutBlind(-depth)
 
     return wp

@@ -72,13 +72,32 @@ def make_validate_partspec_node():
 
     def _node(state: Dict[str, Any]) -> Dict[str, Any]:
         spec = state.get("parts_spec")
+
+        # If spec generation already failed (e.g. ValidationError caught upstream),
+        # there's nothing to validate. Mark invalid with no errors so the graph
+        # routes to end via the existing `attempts >= max_repairs OR no errors`
+        # logic — the user-facing failure has already been recorded in
+        # state["unsupported_aspects"].
         if not spec:
-            raise ValueError("Missing state['parts_spec'] (run spec node first).")
+            new_state = dict(state)
+            new_state["is_valid"] = False
+            new_state["validation_errors"] = []
+            new_state["repair_attempts"] = int(state.get("repair_attempts", 0)) + 999
+            return new_state
 
         errs: List[Dict[str, Any]] = []
 
+        # If the LLM declined to model the request and emitted clarifications
+        # instead of geometry, skip validation: there is no geometry to check
+        # and the graph routes around `compile` via `needs_clarification`.
+        if state.get("needs_clarification") and not spec.get("base"):
+            new_state = dict(state)
+            new_state["is_valid"] = False
+            new_state["validation_errors"] = []
+            return new_state
+
         # ---- Base validation ----
-        base = spec.get("base", {}) or {}
+        base = spec.get("base") or {}
         btype = base.get("type")
 
         if btype not in ("box", "cylinder", "revolve_profile"):
@@ -239,11 +258,17 @@ def make_validate_partspec_node():
                 _add_err(errs, f"{path_base}.pattern.type", f"{prefix}: unsupported pattern.type '{ptype}'")
                 return []
 
-            # Dimension checks by feature type
+            # Dimension checks by feature type.
+            # `cut_annular_sector` is grouped with hole-likes for shared placement
+            # validation (pattern points, etc.) but it uses r_inner/r_outer
+            # instead of `diameter` — skip the diameter check for it.
             if ftype in ("through_hole", "blind_hole", "counterbore", "countersink", "cut_annular_sector"):
-                d = float(f.get("diameter", 0))
-                if d <= 0:
-                    _add_err(errs, f"{path_base}.diameter", f"{prefix}: diameter must be > 0")
+                if ftype != "cut_annular_sector":
+                    d = float(f.get("diameter", 0))
+                    if d <= 0:
+                        _add_err(errs, f"{path_base}.diameter", f"{prefix}: diameter must be > 0")
+                else:
+                    d = 0.0  # for downstream cbore/csk gates which don't apply here
 
                 if ftype == "blind_hole":
                     depth = float(f.get("depth", 0))

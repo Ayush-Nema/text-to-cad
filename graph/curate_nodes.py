@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from typing import List
 
+from pydantic import ValidationError
+
 from graph.nodes.compiler import compile_and_export, CADCompileError
 from graph.nodes.partspec import PartSpec
 from graph.state import GraphState
@@ -39,7 +41,32 @@ def make_generate_partspec_node(llm: BaseChatModel):
             ("human", user_request),
         ]
 
-        result = structured_llm.invoke(llm_messages)
+        # The LLM occasionally emits a malformed spec (e.g. base.type set to a
+        # feature name). Pydantic's `with_structured_output` raises in that
+        # case. Retry a small number of times before giving up.
+        last_error: ValidationError | None = None
+        result = None
+        for _attempt in range(3):
+            try:
+                result = structured_llm.invoke(llm_messages)
+                break
+            except ValidationError as ve:
+                last_error = ve
+                continue
+
+        if result is None:
+            new_state = dict(state)
+            new_state["parts_spec"] = None
+            new_state["needs_clarification"] = False
+            err_text = str(last_error).splitlines()[0] if last_error else "unknown error"
+            new_state["unsupported_aspects"] = [
+                f"Spec generation produced invalid output (after retries): {err_text}"
+            ]
+            new_state["suggested_alternatives"] = [
+                "Try rephrasing the prompt with more specific dimensions and feature names",
+            ]
+            new_state["is_valid"] = False
+            return new_state
 
         # Normalize for downstream tools/caching
         spec_dict = result.model_dump()
@@ -50,12 +77,29 @@ def make_generate_partspec_node(llm: BaseChatModel):
         new_state["parts_spec"] = spec_dict
         new_state["parts_spec_json"] = spec_json
 
-        # Useful for routing: if clarifications exist, downstream can branch
-        needs_clarification = len(result.clarifications_needed) > 0
-        new_state["needs_clarification"] = needs_clarification
+        # Routing flag: only treat BLOCKING clarifications as showstoppers.
+        # Informational/non-blocking clarifications get surfaced to the user
+        # but should not prevent compile when geometry was modeled.
+        blocking = [c for c in result.clarifications_needed if c.blocking]
+        new_state["needs_clarification"] = len(blocking) > 0
         new_state["clarification_questions"] = [
             c.model_dump() for c in result.clarifications_needed
         ]
+
+        # Distinguish out-of-scope from in-scope-but-ambiguous: the LLM signals
+        # out-of-scope by populating clarifications_needed AND emitting no base
+        # (because there's no geometry to model). Surface that as the structured
+        # `unsupported_aspects` signal so callers (main.py, bench/runner.py) can
+        # render the right user-facing message.
+        if blocking and result.base is None:
+            new_state["unsupported_aspects"] = [c.question for c in blocking]
+            # When the clarification carries options (e.g. "I can offer X, Y, Z"),
+            # treat them as suggested alternatives the user could accept.
+            new_state["suggested_alternatives"] = [
+                opt
+                for c in blocking
+                for opt in (c.options or [])
+            ]
 
         # Optional: append JSON for trace/debug in LangGraph Studio
         new_state["messages"] = msgs + [AIMessage(content=spec_json)]

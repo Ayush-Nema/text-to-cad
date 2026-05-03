@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, List, Literal, Union
+from typing import Any, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, ConfigDict, field_validator
 
@@ -200,7 +200,12 @@ class PartSpec(BaseModel):
     units: str = "mm"
     part_name: str
 
-    base: BaseSpec
+    # `base` is optional only because the LLM may decline to model the request
+    # (helical threads, swept geometry, assemblies, etc.) and emit a spec with
+    # `clarifications_needed` populated and no geometry. The validator and
+    # graph router both check `clarifications_needed` before requiring `base`,
+    # so production specs always have it.
+    base: Optional[BaseSpec] = None
     features: List[FeatureSpec] = Field(default_factory=list)
 
     defaults_applied: List[DefaultApplied] = Field(default_factory=list)

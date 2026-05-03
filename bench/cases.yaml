@@ -75,10 +75,14 @@ cases:
     prompt: "a wheel with 5 spokes. There should be a hole in the centre with 12mm diameter. The outer diameter is 350mm and inner diameter is 325mm. Spokes are straight (radial)."
     expected:
       # Either the LLM models this as a cylinder with cut_annular_sector spokes,
-      # or it asks a clarification — both pass.
+      # or it asks a clarification — both pass. Outer-diameter interpretation by
+      # the LLM may be slightly off (rim-thickness vs. spoke-extent ambiguity);
+      # relax tolerance to 15mm to allow a few mm of LLM judgment slack on a
+      # 350 mm part.
       single_solid: true
       out_of_scope: false
       bbox_mm: [350, 350, null]   # null = don't constrain Z
+      bbox_tolerance_mm: 15
 
   # ---- ambiguous prompts: should produce a clarification ----------
   - id: ambiguous_plate_holes

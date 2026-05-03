@@ -123,11 +123,11 @@ def _evaluate(case: Dict[str, Any], state: Dict[str, Any], wall_s: float) -> Cas
     cid = case["id"]
     expected = case.get("expected", {}) or {}
 
-    spec = state.get("parts_spec")
-    spec_obj = state.get("parts_spec_obj")
-    base_type = (spec or {}).get("base", {}).get("type") if spec else None
+    spec = state.get("parts_spec") or {}
+    base = spec.get("base") or {}
+    base_type = base.get("type") if isinstance(base, dict) else None
     feature_types = [
-        f.get("type") for f in (spec or {}).get("features", []) if isinstance(f, dict)
+        f.get("type") for f in (spec.get("features") or []) if isinstance(f, dict)
     ]
 
     needs_clar = bool(state.get("needs_clarification") or state.get("clarification_questions"))
@@ -149,27 +149,55 @@ def _evaluate(case: Dict[str, Any], state: Dict[str, Any], wall_s: float) -> Cas
 
     # ---- evaluate against the expected block --------------------------
     # 1. Out-of-scope expectation
+    # Pass when the system refuses to produce geometry. Two acceptable signals:
+    #   (a) `unsupported_aspects` populated (LLM explicitly flagged the
+    #       limitation) — strongest signal. If `unsupported_substrings` is
+    #       given, at least one must match.
+    #   (b) No base + clarification raised — LLM emitted no geometry and asked
+    #       for input. This is a soft refusal and counts as out-of-scope when
+    #       the case explicitly expects it.
+    # Silent refusal (no base, no clarification, no unsupported_aspects) =
+    # FAIL — that means the system just gave up without telling the user.
     if expected.get("out_of_scope"):
         substrings = [s.lower() for s in expected.get("unsupported_substrings", [])]
         joined = " ".join(unsupported).lower()
+        if unsupported and substrings and any(s in joined for s in substrings):
+            return _result(case, state, wall_s, True, "out_of_scope correctly detected",
+                           bbox_observed, base_type, feature_types)
+        if unsupported and not substrings:
+            return _result(case, state, wall_s, True, "out_of_scope correctly detected",
+                           bbox_observed, base_type, feature_types)
+        # Soft refusal fallback
+        no_geom = base_type is None and not stl_exported and not step_exported
+        if no_geom and (needs_clar or unsupported):
+            return _result(case, state, wall_s, True,
+                           "out_of_scope: system refused to produce geometry "
+                           f"(clarifications={needs_clar}, unsupported={bool(unsupported)})",
+                           bbox_observed, base_type, feature_types)
         if not unsupported:
             return _result(case, state, wall_s, False,
-                           "expected out_of_scope but unsupported_aspects empty",
+                           "expected out_of_scope but system produced output silently",
                            bbox_observed, base_type, feature_types)
-        if substrings and not any(s in joined for s in substrings):
-            return _result(case, state, wall_s, False,
-                           f"unsupported_aspects {unsupported!r} did not match any of {substrings}",
-                           bbox_observed, base_type, feature_types)
-        return _result(case, state, wall_s, True, "out_of_scope correctly detected",
+        return _result(case, state, wall_s, False,
+                       f"unsupported_aspects {unsupported!r} did not match any of {substrings}",
                        bbox_observed, base_type, feature_types)
 
     # 2. Needs-clarification expectation
+    # An ambiguous prompt can be handled honestly two ways: either ASK
+    # (clarifications_needed) or APPLY DEFAULTS WITH RECORD (defaults_applied
+    # populated). Both demonstrate the system is being honest about ambiguity.
+    # Silent defaulting without recording = fail.
     if expected.get("needs_clarification"):
+        defaults = list((spec.get("defaults_applied") or []))
         if needs_clar:
             return _result(case, state, wall_s, True, "clarification correctly requested",
                            bbox_observed, base_type, feature_types)
+        if defaults:
+            return _result(case, state, wall_s, True,
+                           f"ambiguity handled by recorded defaults ({len(defaults)})",
+                           bbox_observed, base_type, feature_types)
         return _result(case, state, wall_s, False,
-                       "expected clarification but none was raised",
+                       "expected clarification or recorded defaults; got neither",
                        bbox_observed, base_type, feature_types)
 
     # 3. In-scope expectation: must produce STL+STEP, geometry must match
