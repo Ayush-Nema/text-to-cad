@@ -22,6 +22,16 @@ Regenerate the complete CadQuery program for the object, using the original desi
 - If the critique mentions ambiguity, resolve it deterministically
 - Prefer simple, robust modeling operations
 
+### Previously generated CadQuery program (authoritative)
+{previous_code}
+
+────────────────────────────────
+
+### Critique feedback (authoritative — address every point)
+{review_feedback}
+
+────────────────────────────────
+
 ### Output
 - Output only the full corrected CadQuery program
 - No explanations, no comments outside code

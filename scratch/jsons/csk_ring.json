@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0",
+  "units": "mm",
+  "part_name": "csk_ring",
+  "base": {
+    "type": "cylinder",
+    "radius": 30,
+    "height": 8
+  },
+  "features": [
+    {
+      "type": "countersink",
+      "on_face": "+Z",
+      "diameter": 5.0,
+      "csk_diameter": 10.0,
+      "csk_angle_deg": 82,
+      "pattern": {
+        "type": "circular",
+        "count": 6,
+        "radius": 20,
+        "start_angle_deg": 0
+      }
+    },
+    {
+      "type": "chamfer",
+      "edges": "top",
+      "distance": 0.5
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0",
+  "units": "mm",
+  "part_name": "plate_4holes_fillet",
+  "base": {
+    "type": "box",
+    "size": {
+      "x": 120,
+      "y": 80,
+      "z": 5
+    }
+  },
+  "features": [
+    {
+      "type": "through_hole",
+      "on_face": "+Z",
+      "diameter": 6.6,
+      "pattern": {
+        "type": "rectangular_4",
+        "edge_offset": {
+          "x": 10,
+          "y": 10
+        }
+      }
+    },
+    {
+      "type": "fillet",
+      "edges": "vertical",
+      "radius": 1.0
+    }
+  ]
+}

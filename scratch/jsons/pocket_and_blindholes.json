@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0",
+  "units": "mm",
+  "part_name": "pocket_blindholes",
+  "base": {
+    "type": "box",
+    "size": {
+      "x": 80,
+      "y": 50,
+      "z": 12
+    }
+  },
+  "features": [
+    {
+      "type": "pocket_rect",
+      "on_face": "+Z",
+      "size": {
+        "x": 50,
+        "y": 25
+      },
+      "depth": 4,
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "corner_radius": 2
+    },
+    {
+      "type": "blind_hole",
+      "on_face": "+Z",
+      "diameter": 4.2,
+      "depth": 8,
+      "pattern": {
+        "type": "linear",
+        "count": 3,
+        "spacing": 20,
+        "axis": "x"
+      }
+    }
+  ]
+}

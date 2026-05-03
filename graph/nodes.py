@@ -14,7 +14,7 @@ from langchain_core.messages import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
 from utils.generate_screenshots import generate_stl_screenshots
-from utils.utils import parse_json, strip_markdown_code_fences, load_and_format_prompt
+from utils.utils import parse_json, strip_markdown_code_fences, load_and_format_prompt, load_md
 from vector_db import setup_or_initialize_kb
 
 
@@ -150,7 +150,7 @@ def generate_cad_program(state):
         }
 
     # Single chain creation and invocation
-    system_prompt = load_and_format_prompt(prompt_path)
+    system_prompt = load_md(prompt_path)
     prompt = ChatPromptTemplate.from_messages([("system", system_prompt)])
     chain = prompt | llm
     response = chain.invoke(variables)
@@ -234,14 +234,24 @@ def validate_program(state):
             runtime_warnings.extend([str(warn.message) for warn in w])
         except Exception:
             exc_type, exc_value, exc_tb = sys.exc_info()
-            # Walk the traceback to the frame inside the executed code
+            # Walk the traceback to the deepest frame that comes from the exec'd
+            # program (filename "<string>"). The true deepest frame is often inside
+            # a C-extension wrapper (e.g. CadQuery/OCCT internals), whose line
+            # number is meaningless against `prog`.
+            user_tb = None
             tb = exc_tb
-            while tb.tb_next is not None:
+            while tb is not None:
+                if tb.tb_frame.f_code.co_filename == "<string>":
+                    user_tb = tb
                 tb = tb.tb_next
-            # Get the line number in the executed string
-            lineno = tb.tb_lineno
-            # Extract the actual line from the string
-            line = prog.splitlines()[lineno - 1] if lineno <= len(prog.splitlines()) else "<line not found>"
+            # Fallback to the deepest frame if no user frame was found.
+            if user_tb is None:
+                user_tb = exc_tb
+                while user_tb.tb_next is not None:
+                    user_tb = user_tb.tb_next
+            lineno = user_tb.tb_lineno
+            prog_lines = prog.splitlines()
+            line = prog_lines[lineno - 1] if 1 <= lineno <= len(prog_lines) else "<line not found>"
             print(f"{exc_type.__name__} at line {lineno}: `{line.strip()}`\nError message: {exc_value}")
             return {
                 "is_code_valid": False,
@@ -340,7 +350,7 @@ def design_critique(state):
     llm = ChatOpenAI(model="gpt-4o", temperature=0.0)
 
     # Load system prompt from markdown
-    prompt_text = load_and_format_prompt("prompts/cad_design_critique.md")
+    prompt_text = load_md("prompts/cad_design_critique.md")
 
     # Generate STL screenshot as base64
     base64_image = generate_stl_screenshots(
