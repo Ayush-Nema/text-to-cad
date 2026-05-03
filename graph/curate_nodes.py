@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import List
 
-from graph.nodes.compiler import compile_and_export
+from graph.nodes.compiler import compile_and_export, CADCompileError
 from graph.nodes.partspec import PartSpec
 from graph.state import GraphState
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -25,7 +25,9 @@ def make_generate_partspec_node(llm: BaseChatModel):
       structured_llm = llm.with_structured_output(PartSpec)
       result = structured_llm.invoke(messages)
     """
-    structured_llm = llm.with_structured_output(PartSpec, method="function_calling")
+    # Pin temperature=0 at the node layer so determinism doesn't depend on the caller.
+    deterministic_llm = llm.bind(temperature=0)
+    structured_llm = deterministic_llm.with_structured_output(PartSpec, method="function_calling")
 
     def _node(state: GraphState) -> GraphState:
         msgs = state.get("messages", [])
@@ -80,14 +82,31 @@ def make_compile_export_node(out_dir: str, export_step: bool = True, export_stl:
             # No-op: return state unchanged (or raise if you prefer)
             return state
 
-        result = compile_and_export(
-            parts_spec=spec,
-            out_dir=out_dir,
-            export_step=export_step,
-            export_stl=export_stl,
-        )
+        try:
+            result = compile_and_export(
+                parts_spec=spec,
+                out_dir=out_dir,
+                export_step=export_step,
+                export_stl=export_stl,
+            )
+        except CADCompileError as e:
+            # The validator passed but CadQuery raised at compile time. Surface
+            # this as a validation error so the repair loop can address it,
+            # rather than crashing the graph.
+            new_state: GraphState = dict(state)
+            existing_errors = list(state.get("validation_errors") or [])
+            existing_errors.append({
+                "path": "compile",
+                "message": str(e),
+                "severity": "error",
+            })
+            new_state["validation_errors"] = existing_errors
+            new_state["is_valid"] = False
+            new_state["compile_failed"] = True
+            return new_state
 
         new_state: GraphState = dict(state)
+        new_state["compile_failed"] = False
 
         # Support either dict or tuple return from your existing function
         if isinstance(result, dict):
@@ -115,7 +134,8 @@ def make_repair_partspec_node(llm):
     Uses function calling method to avoid OpenAI structured-output schema constraints
     (especially if your model includes Any/JSONValue types).
     """
-    structured_llm = llm.with_structured_output(PartSpec, method="function_calling")
+    deterministic_llm = llm.bind(temperature=0)
+    structured_llm = deterministic_llm.with_structured_output(PartSpec, method="function_calling")
 
     def _node(state):
         msgs = state.get("messages", [])

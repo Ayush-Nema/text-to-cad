@@ -7,12 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import cadquery as cq
 from cadquery import exporters
 
-# If you have your PartSpec Pydantic model available, import it.
-# Otherwise, you can remove this import and keep dict-only.
-try:
-    from partspec import PartSpec  # adjust import path
-except Exception:  # pragma: no cover
-    PartSpec = None  # type: ignore
+from graph.nodes.partspec import PartSpec
 
 
 class CADCompileError(RuntimeError):
@@ -166,11 +161,11 @@ def _make_base(base: Dict[str, Any], scale: float) -> Tuple[cq.Workplane, Tuple[
         wp = cq.Workplane("XY").box(x, y, z, centered=True)
         return wp, (x, y, z)
 
-    # cylinder
+    # cylinder — centered on origin so total Z extent = h
     r = float(base.get("radius", 0.0)) * scale
     h = float(base.get("height", 0.0)) * scale
     require(r > 0 and h > 0, "Cylinder radius and height must be > 0")
-    wp = cq.Workplane("XY").circle(r).extrude(h, both=True)
+    wp = cq.Workplane("XY").circle(r).extrude(h / 2.0, both=True)
     return wp, (2 * r, 2 * r, h)
 
 
@@ -351,7 +346,7 @@ def compile_and_export(
       {"step_path": ".../name.step" or None, "stl_path": ".../name.stl" or None}
     """
     # Normalize to dict
-    if PartSpec is not None and isinstance(parts_spec, PartSpec):
+    if isinstance(parts_spec, PartSpec):
         spec_dict = parts_spec.model_dump()
     elif isinstance(parts_spec, dict):
         spec_dict = parts_spec

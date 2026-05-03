@@ -24,7 +24,14 @@ class GraphState(TypedDict, total=False):
     # output of compile/export node
     step_path: str
     stl_path: str
+    compile_failed: bool
 
     # optional: for routing / UI
     needs_clarification: bool
     clarification_questions: List[Dict[str, Any]]
+
+    # populated when the system cannot fulfill the request (out-of-scope or
+    # repair-loop exhaustion). main.py prints these uniformly.
+    unsupported_aspects: List[str]
+    suggested_alternatives: List[str]
+    scope_decision: Dict[str, Any]

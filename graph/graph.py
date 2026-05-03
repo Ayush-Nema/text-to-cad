@@ -68,7 +68,22 @@ def build_graph(
     # Loop edge
     builder.add_edge("repair", "validate")
 
-    # Finish
-    builder.add_edge("compile", END)
+    # After compile: success -> END, CADCompileError -> repair (if retries left) -> validate
+    def route_after_compile(state: GraphState) -> str:
+        if not state.get("compile_failed"):
+            return "end"
+        attempts = int(state.get("repair_attempts", 0))
+        if attempts < max_repairs:
+            return "repair"
+        return "end"
+
+    builder.add_conditional_edges(
+        "compile",
+        route_after_compile,
+        path_map={
+            "repair": "repair",
+            "end": END,
+        },
+    )
 
     return builder.compile()

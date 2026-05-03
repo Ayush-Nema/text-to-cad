@@ -1,0 +1,126 @@
+# Benchmark cases for text-to-CAD reliability.
+#
+# Each case has a `prompt` and an `expected` block. Runner scores per case and
+# aggregates into a comparison table across models.
+#
+# expected.base_type / feature_types: present iff the case is in-scope and
+#   geometry should be produced.
+# expected.bbox_mm: list of three floats (x, y, z) — STL bounding box in mm.
+# expected.bbox_tolerance_mm: per-axis +/- slack; default 1.0mm if omitted.
+# expected.single_solid: STL must be a single connected solid.
+# expected.out_of_scope: true means the system must refuse and populate
+#   `unsupported_aspects` with at least one substring from
+#   `expected.unsupported_substrings`.
+# expected.needs_clarification: true means the system must populate
+#   `clarification_questions` with at least one entry. Geometry not required.
+
+cases:
+  # ---- core in-scope: one per existing base ------------------------
+  - id: slab_basic
+    prompt: "rectangular slab 12mm x 15mm x 20mm"
+    expected:
+      base_type: box
+      bbox_mm: [12, 15, 20]
+      single_solid: true
+      out_of_scope: false
+
+  - id: cylinder_basic
+    prompt: "a cylindrical disk 50mm diameter and 8mm thick"
+    expected:
+      base_type: cylinder
+      bbox_mm: [50, 50, 8]
+      single_solid: true
+      out_of_scope: false
+
+  # ---- features over a box base ------------------------------------
+  - id: plate_4_holes
+    prompt: "120mm x 80mm x 5mm plate with four 6.6mm through-holes 10mm from each edge"
+    expected:
+      base_type: box
+      bbox_mm: [120, 80, 5]
+      feature_types_include: [through_hole]
+      single_solid: true
+      out_of_scope: false
+
+  - id: pocket_and_holes
+    prompt: "80mm x 50mm x 12mm block with a 50x25 rectangular pocket 4mm deep on top, plus three 4.2mm blind holes 8mm deep spaced 20mm apart along the X axis"
+    expected:
+      base_type: box
+      bbox_mm: [80, 50, 12]
+      feature_types_include: [pocket_rect, blind_hole]
+      single_solid: true
+      out_of_scope: false
+
+  # ---- features over a cylinder base -------------------------------
+  - id: csk_ring
+    prompt: "60mm diameter, 8mm thick disk with six 5mm clearance holes countersunk 10mm at 82 degrees, evenly spaced on a 40mm bolt circle"
+    expected:
+      base_type: cylinder
+      bbox_mm: [60, 60, 8]
+      feature_types_include: [countersink]
+      single_solid: true
+      out_of_scope: false
+
+  # ---- revolve_profile base ---------------------------------------
+  - id: stepped_shaft
+    prompt: "a stepped shaft, revolved profile: 50mm long, with a 20mm diameter section for the first 30mm and a 12mm diameter section for the last 20mm"
+    expected:
+      base_type: revolve_profile
+      bbox_mm: [20, 20, 50]
+      single_solid: true
+      out_of_scope: false
+
+  # ---- the original failing prompt --------------------------------
+  - id: wheel_y_split_5_spokes
+    prompt: "a wheel with 5 spokes. There should be a hole in the centre with 12mm diameter. The outer diameter is 350mm and inner diameter is 325mm. Spokes are straight (radial)."
+    expected:
+      # Either the LLM models this as a cylinder with cut_annular_sector spokes,
+      # or it asks a clarification — both pass.
+      single_solid: true
+      out_of_scope: false
+      bbox_mm: [350, 350, null]   # null = don't constrain Z
+
+  # ---- ambiguous prompts: should produce a clarification ----------
+  - id: ambiguous_plate_holes
+    prompt: "make me a plate with mounting holes near the corners"
+    expected:
+      needs_clarification: true
+
+  - id: ambiguous_screw_M6
+    prompt: "design an M6 hole"
+    expected:
+      needs_clarification: true
+
+  # ---- intentionally out-of-scope ---------------------------------
+  - id: oos_helical_thread
+    prompt: "design a helical thread, M6, pitch 1.0, 30mm long"
+    expected:
+      out_of_scope: true
+      unsupported_substrings: [thread, helical]
+
+  - id: oos_turbine_blade
+    prompt: "design a turbine blade with a curved twisted profile"
+    expected:
+      out_of_scope: true
+      unsupported_substrings: [twist, curve, sweep, loft, organic]
+
+  - id: oos_assembly
+    prompt: "design a two-piece hinge assembly with a pin"
+    expected:
+      out_of_scope: true
+      unsupported_substrings: [assembly, multi-body, multiple]
+
+  - id: oos_swept_pipe
+    prompt: "design an S-shaped swept pipe with a 20mm circular cross-section"
+    expected:
+      out_of_scope: true
+      unsupported_substrings: [sweep, swept, path, spline]
+
+  # ---- determinism check (same as slab_basic, run twice) ----------
+  - id: slab_determinism_check
+    prompt: "rectangular slab 12mm x 15mm x 20mm"
+    expected:
+      base_type: box
+      bbox_mm: [12, 15, 20]
+      single_solid: true
+      out_of_scope: false
