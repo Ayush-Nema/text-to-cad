@@ -8,7 +8,16 @@ from pydantic import BaseModel, Field, ConfigDict, field_validator
 Face = Literal["+Z", "-Z", "+X", "-X", "+Y", "-Y"]
 EdgeSet = Literal["all", "vertical", "top", "bottom"]
 
-BaseType = Literal["box", "cylinder", "revolve_profile"]
+BaseType = Literal[
+    "box",
+    "cylinder",
+    "revolve_profile",
+    "cone",            # frustum: bottom_radius != 0, top_radius can be 0 (full cone) or > 0
+    "sphere",          # radius only
+    "polygon_prism",   # regular n-gon extruded; n_sides + radius + height
+    "extrude_2d",      # closed 2D polyline extruded along Z; profile_2d + height
+    "torus",           # major_radius + minor_radius
+]
 FeatureType = Literal[
     "through_hole", "blind_hole", "fillet", "chamfer",
     "pocket_rect", "counterbore", "countersink",
@@ -48,26 +57,47 @@ class ClarificationNeeded(BaseModel):
 
 
 class ProfilePoint(BaseModel):
-    # 2D profile in the R-Z plane (radius, z)
+    # 2D profile in the R-Z plane (radius, z) — used for revolve_profile.
     r: float
     z: float
+
+
+class ProfilePoint2D(BaseModel):
+    # 2D profile in the X-Y plane — used for extrude_2d.
+    x: float
+    y: float
 
 
 # ---- Base ----
 class BaseSpec(BaseModel):
     type: BaseType
-    # For box:
+    # box
     size: Size3 = Field(default_factory=Size3)
-    # For cylinder:
+    # cylinder / cone / polygon_prism
     radius: float = 0.0
     height: float = 0.0
-    # revolve_profile
+    # cone (frustum): top_radius=0 means full cone-to-point; >0 means frustum
+    top_radius: float = 0.0
+    # polygon_prism: number of sides of the regular polygon (>=3)
+    n_sides: int = 0
+    # revolve_profile (R-Z polyline)
     profile: List[ProfilePoint] = Field(default_factory=list)
+    # extrude_2d (X-Y closed polyline; height comes from `height`)
+    profile_2d: List[ProfilePoint2D] = Field(default_factory=list)
+    # torus
+    major_radius: float = 0.0
+    minor_radius: float = 0.0
 
     @field_validator("profile", mode="before")
     @classmethod
     def _coerce_profile_none_to_list(cls, v):
-        # If model outputs null, treat it as "no profile points"
+        if v is None:
+            return []
+        return v
+
+    @field_validator("profile_2d", mode="before")
+    @classmethod
+    def _coerce_profile2d_none_to_list(cls, v):
         if v is None:
             return []
         return v

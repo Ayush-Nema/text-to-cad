@@ -46,7 +46,7 @@ def make_generate_partspec_node(llm: BaseChatModel):
         # case. Retry a small number of times before giving up.
         last_error: ValidationError | None = None
         result = None
-        for _attempt in range(3):
+        for _attempt in range(5):
             try:
                 result = structured_llm.invoke(llm_messages)
                 break

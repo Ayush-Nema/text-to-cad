@@ -33,6 +33,38 @@ def _bbox_from_base(spec_: Dict[str, Any]) -> Tuple[float, float, float]:
         zmax = max(zs)
         return 2 * rmax, 2 * rmax, (zmax - zmin)
 
+    if btype == "cone":
+        r_bot = float(base.get("radius", 0))
+        r_top = float(base.get("top_radius", 0))
+        h = float(base.get("height", 0))
+        rmax = max(r_bot, r_top)
+        return 2 * rmax, 2 * rmax, h
+
+    if btype == "sphere":
+        r = float(base.get("radius", 0))
+        return 2 * r, 2 * r, 2 * r
+
+    if btype == "polygon_prism":
+        r = float(base.get("radius", 0))
+        h = float(base.get("height", 0))
+        return 2 * r, 2 * r, h
+
+    if btype == "extrude_2d":
+        prof = base.get("profile_2d", []) or []
+        if not prof:
+            return 0.0, 0.0, 0.0
+        xs = [float(p.get("x", 0.0)) for p in prof if isinstance(p, dict)]
+        ys = [float(p.get("y", 0.0)) for p in prof if isinstance(p, dict)]
+        h = float(base.get("height", 0))
+        if not xs or not ys:
+            return 0.0, 0.0, 0.0
+        return (max(xs) - min(xs)), (max(ys) - min(ys)), h
+
+    if btype == "torus":
+        R = float(base.get("major_radius", 0))
+        r = float(base.get("minor_radius", 0))
+        return 2 * (R + r), 2 * (R + r), 2 * r
+
     return 0.0, 0.0, 0.0
 
 
@@ -100,9 +132,13 @@ def make_validate_partspec_node():
         base = spec.get("base") or {}
         btype = base.get("type")
 
-        if btype not in ("box", "cylinder", "revolve_profile"):
+        supported_bases = (
+            "box", "cylinder", "revolve_profile",
+            "cone", "sphere", "polygon_prism", "extrude_2d", "torus",
+        )
+        if btype not in supported_bases:
             _add_err(errs, "base.type",
-                     f"Unsupported base.type='{btype}'. Must be 'box', 'cylinder', or 'revolve_profile'.")
+                     f"Unsupported base.type='{btype}'. Must be one of {supported_bases}.")
         else:
             if btype == "box":
                 size = base.get("size", {}) or {}
@@ -172,6 +208,85 @@ def make_validate_partspec_node():
                 if any(float(size.get(k, 0)) != 0 for k in ("x", "y", "z")):
                     _add_err(errs, "base.size",
                              "For revolve_profile base, size.x/y/z should be 0.", severity="warning")
+
+            elif btype == "cone":
+                r_bot = float(base.get("radius", 0))
+                r_top = float(base.get("top_radius", 0))
+                h = float(base.get("height", 0))
+                if r_bot <= 0:
+                    _add_err(errs, "base.radius",
+                             f"cone: bottom radius must be > 0 (got {r_bot}).")
+                if r_top < 0:
+                    _add_err(errs, "base.top_radius",
+                             f"cone: top_radius must be >= 0 (got {r_top}).")
+                if h <= 0:
+                    _add_err(errs, "base.height",
+                             f"cone: height must be > 0 (got {h}).")
+                if r_bot > 0 and r_top == r_bot:
+                    _add_err(errs, "base.top_radius",
+                             "cone: top_radius == bottom radius — use cylinder instead.",
+                             severity="warning")
+
+            elif btype == "sphere":
+                r = float(base.get("radius", 0))
+                if r <= 0:
+                    _add_err(errs, "base.radius",
+                             f"sphere: radius must be > 0 (got {r}).")
+
+            elif btype == "polygon_prism":
+                n = int(base.get("n_sides", 0))
+                r = float(base.get("radius", 0))
+                h = float(base.get("height", 0))
+                if n < 3:
+                    _add_err(errs, "base.n_sides",
+                             f"polygon_prism: n_sides must be >= 3 (got {n}).")
+                if r <= 0:
+                    _add_err(errs, "base.radius",
+                             f"polygon_prism: radius must be > 0 (got {r}).")
+                if h <= 0:
+                    _add_err(errs, "base.height",
+                             f"polygon_prism: height must be > 0 (got {h}).")
+
+            elif btype == "extrude_2d":
+                prof = base.get("profile_2d", None)
+                h = float(base.get("height", 0))
+                if not isinstance(prof, list):
+                    _add_err(errs, "base.profile_2d",
+                             "extrude_2d: profile_2d must be a list of {x,y} points.")
+                    prof = []
+                if len(prof) < 3:
+                    _add_err(errs, "base.profile_2d",
+                             f"extrude_2d: profile_2d must have >= 3 points (got {len(prof)}).")
+                if h <= 0:
+                    _add_err(errs, "base.height",
+                             f"extrude_2d: height must be > 0 (got {h}).")
+                # Shoelace area check — rejects collinear/zero-area polylines.
+                pts = []
+                for p in prof if isinstance(prof, list) else []:
+                    if isinstance(p, dict):
+                        pts.append((float(p.get("x", 0.0)), float(p.get("y", 0.0))))
+                if len(pts) >= 3:
+                    area = 0.5 * abs(sum(
+                        pts[i][0] * pts[(i + 1) % len(pts)][1]
+                        - pts[(i + 1) % len(pts)][0] * pts[i][1]
+                        for i in range(len(pts))
+                    ))
+                    if area <= 1e-9:
+                        _add_err(errs, "base.profile_2d",
+                                 "extrude_2d: profile_2d has zero/degenerate area (collinear or self-cancelling points).")
+
+            elif btype == "torus":
+                R = float(base.get("major_radius", 0))
+                r = float(base.get("minor_radius", 0))
+                if R <= 0:
+                    _add_err(errs, "base.major_radius",
+                             f"torus: major_radius must be > 0 (got {R}).")
+                if r <= 0:
+                    _add_err(errs, "base.minor_radius",
+                             f"torus: minor_radius must be > 0 (got {r}).")
+                if R > 0 and r > 0 and r >= R:
+                    _add_err(errs, "base.minor_radius",
+                             f"torus: minor_radius ({r}) must be < major_radius ({R}).")
 
         # Bounding box for placement/depth checks
         bx, by, bz = _bbox_from_base(spec)

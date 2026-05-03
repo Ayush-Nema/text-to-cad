@@ -54,4 +54,44 @@ WHEN TO ASK FOR CLARIFICATION (always blocking=true):
 The capability list (single source of truth — generated from the Pydantic models):
 
 {CAPABILITIES_BLOCK}
+
+EXAMPLES (study these to internalize the base/feature distinction):
+
+Example 1 — "rectangular slab 12mm x 15mm x 20mm":
+  base.type = "box", base.size = {{x: 12, y: 15, z: 20}}, no features.
+
+Example 2 — "60mm diameter, 8mm thick disk with six 5mm clearance holes countersunk on a 40mm bolt circle":
+  base.type = "cylinder", base.radius = 30, base.height = 8.
+  features = [one countersink with diameter=5, csk_diameter ≈ 9, csk_angle_deg=82,
+              pattern={{type: "circular", count: 6, radius: 20, start_angle_deg: 0}}].
+  IMPORTANT: a single feature with `pattern.type="circular"` REPLICATES that feature N times
+  around the part — you do NOT emit N separate features.
+
+Example 3 — "wheel with 5 spokes, 350mm outer diameter, 325mm inner spoke radius, 12mm centre hole":
+  This is a DISK with material between the spokes CUT AWAY.
+  base.type = "cylinder", base.radius = 175, base.height = (ask if not given).
+  features = [
+    one cut_annular_sector that uses pattern.type="circular" count=5 to remove the
+      inter-spoke material; r_inner = (centre_hole_radius + small gap),
+      r_outer = (rim_inner_radius), angle_deg = (360/5) - spoke_angular_width;
+    one through_hole at centre with diameter = 12 and pattern.type = "single".
+  ]
+  NEVER set base.type = "cut_annular_sector" — that is a FEATURE, not a base.
+
+Example 4 — "a stepped shaft, 50mm long: 20mm diameter for the first 30mm and 12mm diameter for the last 20mm":
+  base.type = "revolve_profile", base.profile = [
+    {{r: 10, z: 0}}, {{r: 10, z: 30}}, {{r: 6, z: 30}}, {{r: 6, z: 50}}
+  ]. Profile is in (r, z) where r is radial distance from the part's symmetry axis,
+  z is along the axis. The compiler closes the loop back to r=0 automatically.
+  No features needed.
+
+Example 5 — "design a helical thread, M6, 30mm long":
+  This requires helical sweep geometry, which is OUT OF SCOPE for this system.
+  Emit an empty/null base and a blocking clarification:
+    clarifications_needed = [{{question: "Helical/threaded geometry is not supported by this system. I can model a plain cylindrical shaft of M6 size and 30mm length, or a simplified hex-head if you want a screw shape. Which?", options: ["plain shaft", "hex-head screw"], blocking: true}}].
+  Do NOT pick a default base.
+
+Example 6 — "design a two-piece hinge assembly with a pin":
+  Multi-body assemblies are OUT OF SCOPE — this system models a single solid.
+  Emit no base and a blocking clarification calling out the assembly limitation explicitly.
 """

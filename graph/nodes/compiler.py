@@ -122,7 +122,11 @@ def _pattern_points(
 
 def _make_base(base: Dict[str, Any], scale: float) -> Tuple[cq.Workplane, Tuple[float, float, float]]:
     btype = base.get("type")
-    require(btype in ("box", "cylinder", "revolve_profile"), f"Unsupported base type: {btype}")
+    supported = (
+        "box", "cylinder", "revolve_profile",
+        "cone", "sphere", "polygon_prism", "extrude_2d", "torus",
+    )
+    require(btype in supported, f"Unsupported base type: {btype}")
 
     if btype == "revolve_profile":
         prof = base.get("profile", [])
@@ -172,12 +176,83 @@ def _make_base(base: Dict[str, Any], scale: float) -> Tuple[cq.Workplane, Tuple[
         wp = cq.Workplane("XY").box(x, y, z, centered=True)
         return wp, (x, y, z)
 
-    # cylinder — centered on origin so total Z extent = h
-    r = float(base.get("radius", 0.0)) * scale
-    h = float(base.get("height", 0.0)) * scale
-    require(r > 0 and h > 0, "Cylinder radius and height must be > 0")
-    wp = cq.Workplane("XY").circle(r).extrude(h / 2.0, both=True)
-    return wp, (2 * r, 2 * r, h)
+    if btype == "cylinder":
+        # centered on origin so total Z extent = h
+        r = float(base.get("radius", 0.0)) * scale
+        h = float(base.get("height", 0.0)) * scale
+        require(r > 0 and h > 0, "Cylinder radius and height must be > 0")
+        wp = cq.Workplane("XY").circle(r).extrude(h / 2.0, both=True)
+        return wp, (2 * r, 2 * r, h)
+
+    if btype == "cone":
+        # Frustum (or full cone if top_radius==0). Centered on origin in Z.
+        r_bot = float(base.get("radius", 0.0)) * scale
+        r_top = float(base.get("top_radius", 0.0)) * scale
+        h = float(base.get("height", 0.0)) * scale
+        require(r_bot > 0, "Cone bottom radius (radius) must be > 0")
+        require(h > 0, "Cone height must be > 0")
+        require(r_top >= 0, "Cone top_radius must be >= 0")
+        # Lift bottom face by h/2 below origin and stack the top h/2 above so the
+        # part is centered on Z — matches the box/cylinder convention.
+        wp = (
+            cq.Workplane("XY")
+            .workplane(offset=-h / 2.0)
+            .circle(r_bot)
+            .workplane(offset=h)
+            .circle(r_top if r_top > 0 else 1e-3)
+            .loft(combine=True)
+        )
+        rmax = max(r_bot, r_top)
+        return wp, (2 * rmax, 2 * rmax, h)
+
+    if btype == "sphere":
+        r = float(base.get("radius", 0.0)) * scale
+        require(r > 0, "Sphere radius must be > 0")
+        wp = cq.Workplane("XY").sphere(r)
+        return wp, (2 * r, 2 * r, 2 * r)
+
+    if btype == "polygon_prism":
+        n = int(base.get("n_sides", 0))
+        r = float(base.get("radius", 0.0)) * scale
+        h = float(base.get("height", 0.0)) * scale
+        require(n >= 3, f"polygon_prism: n_sides must be >= 3 (got {n})")
+        require(r > 0, "polygon_prism: radius must be > 0")
+        require(h > 0, "polygon_prism: height must be > 0")
+        # cq.polygon takes circumscribed-circle diameter
+        wp = cq.Workplane("XY").polygon(n, 2 * r).extrude(h / 2.0, both=True)
+        return wp, (2 * r, 2 * r, h)
+
+    if btype == "extrude_2d":
+        prof = base.get("profile_2d", []) or []
+        h = float(base.get("height", 0.0)) * scale
+        require(isinstance(prof, list) and len(prof) >= 3,
+                "extrude_2d: profile_2d must have >= 3 points")
+        require(h > 0, "extrude_2d: height must be > 0")
+        pts = [(float(p.get("x", 0.0)) * scale, float(p.get("y", 0.0)) * scale) for p in prof]
+        # Reject self-intersecting profile via shoelace area > 0 (signed area).
+        area = 0.5 * abs(sum(
+            pts[i][0] * pts[(i + 1) % len(pts)][1] - pts[(i + 1) % len(pts)][0] * pts[i][1]
+            for i in range(len(pts))
+        ))
+        require(area > 0, "extrude_2d: profile_2d has zero/degenerate area")
+        wp = cq.Workplane("XY").polyline(pts).close().extrude(h / 2.0, both=True)
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        return wp, (max(xs) - min(xs), max(ys) - min(ys), h)
+
+    if btype == "torus":
+        R = float(base.get("major_radius", 0.0)) * scale
+        r = float(base.get("minor_radius", 0.0)) * scale
+        require(R > 0 and r > 0, "torus: major_radius and minor_radius must be > 0")
+        require(r < R, f"torus: minor_radius ({r}) must be < major_radius ({R})")
+        # Use OCCT's primitive directly — manual revolve recipes degenerate
+        # when the wire plane contains the revolve axis.
+        torus = cq.Solid.makeTorus(R, r)
+        wp = cq.Workplane("XY").add(torus)
+        return wp, (2 * (R + r), 2 * (R + r), 2 * r)
+
+    # Fallthrough should not happen because of the `require` at the top.
+    raise CADCompileError(f"Unsupported base type after dispatch: {btype}")
 
 
 # -----------------------

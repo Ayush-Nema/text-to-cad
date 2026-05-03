@@ -70,6 +70,58 @@ cases:
       single_solid: true
       out_of_scope: false
 
+  # ---- new bases (cone, sphere, polygon_prism, extrude_2d, torus) ----
+  - id: cone_full
+    prompt: "a solid cone with 30mm base diameter, coming to a point, 50mm tall"
+    expected:
+      base_type: cone
+      bbox_mm: [30, 30, 50]
+      single_solid: true
+      out_of_scope: false
+
+  - id: cone_frustum
+    prompt: "a frustum: bottom diameter 40mm, top diameter 20mm, height 25mm"
+    expected:
+      base_type: cone
+      bbox_mm: [40, 40, 25]
+      single_solid: true
+      out_of_scope: false
+
+  - id: sphere_basic
+    prompt: "a 30mm diameter sphere"
+    expected:
+      base_type: sphere
+      bbox_mm: [30, 30, 30]
+      single_solid: true
+      out_of_scope: false
+
+  - id: hex_prism
+    prompt: "a hex prism: 20mm across-the-flats, 15mm tall"
+    expected:
+      base_type: polygon_prism
+      # 20mm flats -> ~23.09 corners. Either interpretation is acceptable
+      # given LLM-level ambiguity in CAD conventions; tolerate ~4mm.
+      bbox_mm: [23, 23, 15]
+      bbox_tolerance_mm: 4
+      single_solid: true
+      out_of_scope: false
+
+  - id: extrude_2d_L
+    prompt: "an L-shaped bracket profile, 50mm long arm and 30mm short arm, both 10mm wide, extruded 5mm thick"
+    expected:
+      base_type: extrude_2d
+      bbox_mm: [50, 30, 5]
+      single_solid: true
+      out_of_scope: false
+
+  - id: torus_basic
+    prompt: "a torus: 40mm major radius, 8mm minor radius (donut shape)"
+    expected:
+      base_type: torus
+      bbox_mm: [96, 96, 16]
+      single_solid: true
+      out_of_scope: false
+
   # ---- the original failing prompt --------------------------------
   - id: wheel_y_split_5_spokes
     prompt: "a wheel with 5 spokes. There should be a hole in the centre with 12mm diameter. The outer diameter is 350mm and inner diameter is 325mm. Spokes are straight (radial)."
